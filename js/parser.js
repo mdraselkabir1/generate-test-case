@@ -83,13 +83,56 @@ const Parser = (() => {
   ];
 
   /**
+   * Detect if a URL uses client-side hash routing (SPA).
+   */
+  function detectSpaHash(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.hash && parsed.hash.length > 2; // more than just "#"
+    } catch { return false; }
+  }
+
+  /**
+   * Strip hash fragment from a URL (hash is never sent to the server).
+   */
+  function stripHash(url) {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch { return url; }
+  }
+
+  /**
+   * Check if fetched HTML looks like a SPA shell rather than real content.
+   */
+  function isSpaShell(html) {
+    const lower = html.toLowerCase();
+    const spaIndicators = [
+      '<app-root', '<app-component', 'ng-app', 'ng-version',
+      'id="root"></div>', 'id="app"></div>', '__next', '__nuxt',
+      'window.__INITIAL_STATE__', 'data-reactroot',
+    ];
+    const matchCount = spaIndicators.filter(s => lower.includes(s)).length;
+    // Also check: very little visible text relative to total HTML size
+    const textContent = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const isLowContent = html.length > 500 && textContent.length < html.length * 0.05;
+    return matchCount >= 1 || isLowContent;
+  }
+
+  /**
    * Fetch content from a URL (through CORS proxy), with optional auth.
-   * Tries multiple proxies on failure.
+   * Tries multiple proxies on failure. When auth is enabled, direct fetch is
+   * tried first because CORS proxies typically do not forward auth headers.
    */
   async function fetchUrl(url, corsProxy, authConfig) {
+    const hasAuth = authConfig && authConfig.enabled;
+    const isSpa = detectSpaHash(url);
+    const fetchTarget = stripHash(url); // server never sees hash
+
     const headers = {};
 
-    if (authConfig && authConfig.enabled) {
+    if (hasAuth) {
       switch (authConfig.type) {
         case 'basic': {
           const encoded = btoa(authConfig.username + ':' + authConfig.password);
@@ -114,57 +157,112 @@ const Parser = (() => {
       }
     }
 
-    // Build list of proxy URLs to try
-    const proxyUrls = [];
+    // --- Build ordered list of fetch strategies ---
+    const strategies = [];
 
-    // If user provided a custom proxy, try that first
-    if (corsProxy) {
-      proxyUrls.push({ name: 'custom', url: corsProxy + encodeURIComponent(url) });
-    }
-
-    // Add built-in fallback proxies
-    for (const proxy of CORS_PROXIES) {
-      const pUrl = proxy.buildUrl(url);
-      // Avoid duplicating the custom proxy
-      if (!proxyUrls.some(p => p.url === pUrl)) {
-        proxyUrls.push({ name: proxy.name, url: pUrl });
+    // When auth is enabled, try direct fetch FIRST (proxies won't forward auth)
+    if (hasAuth) {
+      strategies.push({ name: 'direct+auth', url: fetchTarget, useCredentials: true });
+      // Also try basic-auth-in-URL for proxies (some proxies honour this)
+      if (authConfig.type === 'basic') {
+        try {
+          const parsed = new URL(fetchTarget);
+          parsed.username = authConfig.username;
+          parsed.password = authConfig.password;
+          const authUrl = parsed.toString();
+          // Try through proxies with credentials embedded in the URL
+          if (corsProxy) {
+            strategies.push({ name: 'custom-proxy+url-auth', url: corsProxy + encodeURIComponent(authUrl) });
+          }
+          for (const proxy of CORS_PROXIES) {
+            strategies.push({ name: proxy.name + '+url-auth', url: proxy.buildUrl(authUrl) });
+          }
+        } catch { /* skip URL-embedded auth if URL parsing fails */ }
       }
     }
 
-    // Also try direct fetch (works for CORS-friendly sites)
-    proxyUrls.push({ name: 'direct', url });
+    // Custom proxy
+    if (corsProxy) {
+      strategies.push({ name: 'custom', url: corsProxy + encodeURIComponent(fetchTarget) });
+    }
 
+    // Built-in proxies
+    for (const proxy of CORS_PROXIES) {
+      const pUrl = proxy.buildUrl(fetchTarget);
+      if (!strategies.some(s => s.url === pUrl)) {
+        strategies.push({ name: proxy.name, url: pUrl });
+      }
+    }
+
+    // Direct fetch without auth (last resort if no auth, or as fallback)
+    if (!hasAuth) {
+      strategies.push({ name: 'direct', url: fetchTarget });
+    }
+
+    // --- Try each strategy ---
     let lastError = null;
-    for (const proxy of proxyUrls) {
+    let spaWarning = '';
+
+    for (const strategy of strategies) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        const timeout = setTimeout(() => controller.abort(), 15000);
 
-        const response = await fetch(proxy.url, {
-          headers,
+        const fetchOpts = {
+          headers: strategy.useCredentials ? headers : {},
           signal: controller.signal,
-        });
+        };
+        if (strategy.useCredentials) {
+          fetchOpts.credentials = 'include';
+          fetchOpts.mode = 'cors';
+        }
+
+        const response = await fetch(strategy.url, fetchOpts);
         clearTimeout(timeout);
 
         if (!response.ok) {
-          lastError = new Error(`${proxy.name}: HTTP ${response.status}`);
+          lastError = new Error(`${strategy.name}: HTTP ${response.status}`);
           continue;
         }
 
         const html = await response.text();
         if (!html || html.trim().length < 50) {
-          lastError = new Error(`${proxy.name}: Empty or too short response`);
+          lastError = new Error(`${strategy.name}: Empty or too short response`);
           continue;
         }
 
-        return extractTextFromHtml(html);
+        // Detect SPA shell
+        if (isSpaShell(html)) {
+          spaWarning = `Note: This appears to be a Single Page Application (SPA). ` +
+            `The fetched content is the app shell, not the rendered "${url.split('#')[1] || ''}" page. ` +
+            `For best results, open the page in your browser, select all visible content (Ctrl+A / Cmd+A), ` +
+            `copy it, and paste it into the Text Input tab.\n\n---\n\n`;
+          // Still extract what we can from the shell
+        }
+
+        const extracted = extractTextFromHtml(html);
+        return spaWarning + extracted;
       } catch (err) {
         lastError = err;
-        // Continue to next proxy
       }
     }
 
-    throw new Error(`Failed to fetch URL after trying ${proxyUrls.length} methods. Last error: ${lastError?.message || 'Unknown error'}. Try downloading the page manually and uploading it as a file instead.`);
+    // Build actionable error message
+    let errorMsg = `Failed to fetch URL after trying ${strategies.length} methods.`;
+    if (isSpa) {
+      errorMsg += `\n\nThis URL uses client-side routing (#/reports/). The page content is rendered by JavaScript in the browser and cannot be fetched server-side.`;
+    }
+    if (hasAuth) {
+      errorMsg += `\n\nThe site requires authentication, which CORS proxies cannot forward.`;
+    }
+    errorMsg += `\n\nSuggested workarounds:\n` +
+      `1. Open the URL in your browser (authenticated), select all content (Ctrl+A), copy, and paste into the Text Input tab.\n` +
+      `2. Save the page as HTML from your browser (Ctrl+S) and upload it via the File tab.\n` +
+      `3. Use browser DevTools → Console → document.body.innerText, copy the output, and paste it.`;
+    if (lastError) {
+      errorMsg += `\n\nLast error: ${lastError.message}`;
+    }
+    throw new Error(errorMsg);
   }
 
   /**
