@@ -358,7 +358,7 @@
   }
 
   async function handleProjectZip(file) {
-    const maxSize = 50 * 1024 * 1024; // 50MB for zip
+    const maxSize = 3 * 1024 * 1024 * 1024; // 3GB for zip
     if (file.size > maxSize) {
       showToast('Zip file too large (max 50MB)', 'error');
       return;
