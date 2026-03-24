@@ -196,6 +196,19 @@
     // URL fetch
     $('#fetchUrlBtn').addEventListener('click', fetchUrlContent);
 
+    // Auth toggle
+    $('#authToggle').addEventListener('change', () => {
+      $('#authFields').classList.toggle('hidden', !$('#authToggle').checked);
+    });
+
+    // Auth method switching
+    $('#authType').addEventListener('change', () => {
+      const method = $('#authType').value;
+      $$('.auth-method-fields').forEach(el => el.classList.add('hidden'));
+      const fieldMap = { basic: 'authBasicFields', bearer: 'authBearerFields', cookie: 'authCookieFields', form: 'authFormFields' };
+      if (fieldMap[method]) $(`#${fieldMap[method]}`).classList.remove('hidden');
+    });
+
     // File upload
     const uploadZone = $('#uploadZone');
     const fileInput = $('#fileInput');
@@ -240,13 +253,54 @@
       return;
     }
 
+    // Build auth config
+    let authConfig = { enabled: false };
+    if ($('#authToggle').checked) {
+      const authType = $('#authType').value;
+      authConfig = { enabled: true, type: authType };
+
+      switch (authType) {
+        case 'basic':
+          authConfig.username = $('#authUsername').value.trim();
+          authConfig.password = $('#authPassword').value;
+          if (!authConfig.username || !authConfig.password) {
+            showToast('Please enter username and password', 'warning');
+            return;
+          }
+          break;
+        case 'bearer':
+          authConfig.token = $('#authToken').value.trim();
+          if (!authConfig.token) {
+            showToast('Please enter a bearer token', 'warning');
+            return;
+          }
+          break;
+        case 'cookie':
+          authConfig.cookie = $('#authCookie').value.trim();
+          if (!authConfig.cookie) {
+            showToast('Please enter session cookie', 'warning');
+            return;
+          }
+          break;
+        case 'form':
+          authConfig.loginUrl = $('#authLoginUrl').value.trim();
+          authConfig.username = $('#authFormUsername').value.trim();
+          authConfig.password = $('#authFormPassword').value;
+          if (!authConfig.loginUrl || !authConfig.username || !authConfig.password) {
+            showToast('Please fill in all login fields', 'warning');
+            return;
+          }
+          break;
+      }
+    }
+
     const btn = $('#fetchUrlBtn');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
 
     try {
       const settings = Storage.getSettings();
-      const text = await Parser.fetchUrl(url, settings.corsProxy);
+      const text = await Parser.fetchUrl(url, settings.corsProxy, authConfig);
       parsedContent = text;
       $('#urlPreview').classList.remove('hidden');
       $('#urlPreviewBody').textContent = text.substring(0, 5000) + (text.length > 5000 ? '\n\n... (truncated)' : '');

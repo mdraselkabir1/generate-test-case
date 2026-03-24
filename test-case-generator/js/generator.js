@@ -8,7 +8,7 @@ const Generator = (() => {
     basic:         { min: 5,  max: 10, edgeCases: false, negatives: false },
     standard:      { min: 10, max: 25, edgeCases: true,  negatives: true  },
     comprehensive: { min: 25, max: 50, edgeCases: true,  negatives: true  },
-    exhaustive:    { min: 50, max: 80, edgeCases: true,  negatives: true  },
+    exhaustive:    { min: 50, max: 200, edgeCases: true,  negatives: true  },
   };
 
   /**
