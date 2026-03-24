@@ -57,6 +57,20 @@ const Generator = (() => {
       testCases.push(...generateEdgeCases(analysis, depthConfig));
     }
 
+    // --- Generate unit test cases from source code ---
+    if (testType === 'all' || testType === 'unit') {
+      if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
+        testCases.push(...generateUnitTestCases(analysis, depthConfig));
+      }
+    }
+
+    // --- Generate integration test cases from source code ---
+    if (testType === 'all' || testType === 'integration') {
+      if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
+        testCases.push(...generateCodeIntegrationCases(analysis, depthConfig));
+      }
+    }
+
     // --- Generate from user stories ---
     if (analysis.userStories.length > 0) {
       testCases.push(...generateFromUserStories(analysis, depthConfig));
@@ -797,7 +811,382 @@ const Generator = (() => {
   // ============================================================
   // Helpers
   // ============================================================
+
+  // ============================================================
+  // Unit Test Cases (from source code analysis)
+  // ============================================================
+  function generateUnitTestCases(analysis, depthConfig) {
+    const cases = [];
+    const ca = analysis.codeAnalysis;
+    if (!ca || !ca.isSourceCode) return cases;
+
+    const lang = ca.language;
+    const file = ca.fileName;
+
+    // --- Per-function test cases ---
+    ca.functions.forEach(fn => {
+      const paramList = fn.params.length > 0 ? fn.params.join(', ') : 'no parameters';
+
+      // Happy path
+      cases.push({
+        title: `Unit: ${fn.name}() — returns correct result with valid input`,
+        type: 'unit',
+        priority: fn.isExported ? 'critical' : 'high',
+        preconditions: `${file} is loaded. Dependencies are mocked/stubbed.`,
+        steps: [
+          `Call ${fn.name}(${paramList}) with valid, typical input values`,
+          'Capture the return value',
+          'Assert the return value matches the expected output',
+          fn.isAsync ? 'Ensure the promise resolves (not rejects)' : 'Verify no exceptions are thrown',
+        ],
+        expectedResult: `${fn.name}() returns the correct expected value for valid input`,
+        notes: `Line ${fn.lineNum} | ${fn.visibility} | ${fn.isAsync ? 'async' : 'sync'} | Returns: ${fn.returnType}`,
+      });
+
+      // Null/undefined params
+      if (fn.params.length > 0) {
+        cases.push({
+          title: `Unit: ${fn.name}() — handles null/undefined parameters`,
+          type: 'unit',
+          priority: 'high',
+          preconditions: `${file} is loaded`,
+          steps: [
+            `Call ${fn.name}() with null for each parameter one at a time`,
+            `Call ${fn.name}() with undefined for each parameter`,
+            `Call ${fn.name}() with no arguments (if not required)`,
+            'Observe behavior for each case',
+          ],
+          expectedResult: `${fn.name}() either returns a safe default, throws a descriptive error, or handles gracefully — no unhandled crash`,
+          notes: `Parameters: ${paramList}`,
+        });
+      }
+
+      // Edge-case parameter values
+      if (fn.params.length > 0 && depthConfig.edgeCases) {
+        cases.push({
+          title: `Unit: ${fn.name}() — boundary and edge-case inputs`,
+          type: 'unit',
+          priority: 'medium',
+          preconditions: `${file} is loaded`,
+          steps: [
+            `Call ${fn.name}() with empty string "" for string params`,
+            `Call ${fn.name}() with 0, -1, Number.MAX_SAFE_INTEGER for numeric params`,
+            `Call ${fn.name}() with empty array [] or empty object {} for collection params`,
+            `Call ${fn.name}() with extremely long strings (10000+ chars)`,
+            `Call ${fn.name}() with special characters and unicode in string params`,
+          ],
+          expectedResult: `${fn.name}() handles all boundary values without crashing`,
+          notes: `Edge case testing for ${paramList}`,
+        });
+      }
+
+      // Error handling within function
+      if (fn.hasErrorHandling) {
+        cases.push({
+          title: `Unit: ${fn.name}() — error handling paths are exercised`,
+          type: 'unit',
+          priority: 'high',
+          preconditions: `${file} is loaded. Dependencies are mockable.`,
+          steps: [
+            `Mock dependencies to trigger error conditions inside ${fn.name}()`,
+            'Call the function and expect it to handle the error',
+            'Verify the correct error type/message is thrown or returned',
+            'Verify no side effects occur (no partial writes, no state corruption)',
+          ],
+          expectedResult: `${fn.name}() catches errors correctly and the caller receives an appropriate error`,
+          notes: 'Tests try/catch, throw, or error propagation paths',
+        });
+      }
+
+      // Async-specific tests
+      if (fn.isAsync) {
+        cases.push({
+          title: `Unit: ${fn.name}() — async rejection/timeout handling`,
+          type: 'unit',
+          priority: 'high',
+          preconditions: `${file} is loaded. Async dependencies are mockable.`,
+          steps: [
+            `Mock async dependency to reject/throw`,
+            `Call ${fn.name}() and await the result`,
+            'Verify the rejection is propagated or caught correctly',
+            'Mock network/timeout scenario and verify timeout handling',
+            'Verify no dangling promises or unhandled rejections',
+          ],
+          expectedResult: `${fn.name}() properly handles async failures without unhandled promise rejections`,
+          notes: 'Async function — test both resolve and reject paths',
+        });
+      }
+
+      // Return type validation
+      if (fn.returnType && fn.returnType !== 'unknown') {
+        cases.push({
+          title: `Unit: ${fn.name}() — return type is always ${fn.returnType}`,
+          type: 'unit',
+          priority: 'medium',
+          preconditions: `${file} is loaded`,
+          steps: [
+            `Call ${fn.name}() with various valid inputs`,
+            `Assert return type is ${fn.returnType} in every case`,
+            `Call ${fn.name}() with edge-case inputs`,
+            `Assert return type remains ${fn.returnType} (or null/undefined where documented)`,
+          ],
+          expectedResult: `Return value is always of type ${fn.returnType} regardless of input variation`,
+          notes: `Return type contract enforcement`,
+        });
+      }
+    });
+
+    // --- Per-class test cases ---
+    ca.classes.forEach(cls => {
+      cases.push({
+        title: `Unit: ${cls.name} — instantiation and initialization`,
+        type: 'unit',
+        priority: 'critical',
+        preconditions: `${file} is loaded`,
+        steps: [
+          `Create a new instance of ${cls.name}${cls.extends ? ` (extends ${cls.extends})` : ''}`,
+          'Verify the instance is created without errors',
+          'Check all properties are initialized to expected defaults',
+          'Verify the instance is of the correct type',
+        ],
+        expectedResult: `${cls.name} instance is created successfully with correct initial state`,
+        notes: `${cls.extends ? 'Extends: ' + cls.extends : ''}${cls.implements.length ? ' | Implements: ' + cls.implements.join(', ') : ''}`,
+      });
+
+      // Test each method
+      if (cls.methods && cls.methods.length > 0) {
+        cls.methods.forEach(method => {
+          cases.push({
+            title: `Unit: ${cls.name}.${method.name}() — correct behavior`,
+            type: 'unit',
+            priority: method.visibility === 'public' ? 'high' : 'medium',
+            preconditions: `${cls.name} instance is created and in valid state`,
+            steps: [
+              `Create instance of ${cls.name}`,
+              `Call .${method.name}(${method.params.join(', ')}) with valid arguments`,
+              'Assert return value is correct',
+              'Assert instance state is updated correctly (if stateful)',
+            ],
+            expectedResult: `${cls.name}.${method.name}() performs its operation correctly`,
+            notes: `${method.visibility} method | Line ${method.lineNum}`,
+          });
+        });
+      }
+    });
+
+    // --- API Route test cases ---
+    ca.apiRoutes.forEach(route => {
+      cases.push({
+        title: `Unit: ${route.method} ${route.path} handler — success response`,
+        type: 'unit',
+        priority: 'critical',
+        preconditions: `Route handler is isolated. Database/service mocked.`,
+        steps: [
+          `Send mock ${route.method} request to ${route.path}`,
+          'Include valid request body/params as required',
+          'Assert the handler returns correct status code',
+          'Assert response body structure matches schema',
+        ],
+        expectedResult: `Handler responds with correct status and body for valid ${route.method} ${route.path}`,
+        notes: `Line ${route.lineNum}`,
+      });
+
+      // Error cases for routes
+      cases.push({
+        title: `Unit: ${route.method} ${route.path} handler — error response`,
+        type: 'unit',
+        priority: 'high',
+        preconditions: `Route handler is isolated`,
+        steps: [
+          `Send mock ${route.method} request with invalid/missing data`,
+          'Assert handler returns 4xx error code',
+          'Mock database/service failure',
+          'Assert handler returns 500 with safe error message (no stack trace leak)',
+        ],
+        expectedResult: `Handler returns appropriate error responses without leaking internals`,
+        notes: 'Negative test for route handler',
+      });
+    });
+
+    // --- Database operation test cases ---
+    const seenDbOps = new Set();
+    ca.dbOperations.forEach(op => {
+      const key = op.type;
+      if (seenDbOps.has(key)) return;
+      seenDbOps.add(key);
+      cases.push({
+        title: `Unit: Database ${op.type} operation — correct query execution`,
+        type: 'unit',
+        priority: 'high',
+        preconditions: `Database connection is mocked/stubbed`,
+        steps: [
+          `Trigger the code path that performs ${op.type} operation`,
+          'Assert the correct query/method is called with expected arguments',
+          'Verify the result is processed correctly',
+          'Test with empty result set from mock DB',
+          'Test with mock DB failure (connection error, constraint violation)',
+        ],
+        expectedResult: `Database ${op.type} operation is called correctly and results are handled`,
+        notes: `Context: ${op.context.substring(0, 80)}`,
+      });
+    });
+
+    // --- Environment variable tests ---
+    if (ca.envVariables.length > 0) {
+      cases.push({
+        title: `Unit: Environment variables — behavior when missing`,
+        type: 'unit',
+        priority: 'critical',
+        preconditions: `Application environment is configurable`,
+        steps: ca.envVariables.slice(0, 8).map(ev =>
+          `Unset ${ev.name} and verify the code fails gracefully or uses a default`
+        ).concat([
+          'Set environment variables to invalid values (empty string, wrong type)',
+          'Verify the application validates environment variables at startup',
+        ]),
+        expectedResult: `Application handles missing/invalid env vars gracefully with clear error messages`,
+        notes: `Env vars used: ${ca.envVariables.map(e => e.name).join(', ')}`,
+      });
+    }
+
+    // --- TODO/FIXME items as risk-based tests ---
+    ca.todos.forEach(todo => {
+      cases.push({
+        title: `Risk: ${todo.type} at line ${todo.lineNum} — verify affected behavior`,
+        type: 'unit',
+        priority: todo.type === 'BUG' || todo.type === 'FIXME' ? 'critical' : 'medium',
+        preconditions: `Code around line ${todo.lineNum} is testable`,
+        steps: [
+          `Review the ${todo.type} comment: "${todo.text.substring(0, 100)}"`,
+          'Identify the affected code path',
+          'Write a test that exercises this code path',
+          'Verify current behavior is acceptable or document the limitation',
+        ],
+        expectedResult: `Code path is tested and behavior is documented`,
+        notes: `${todo.type}: ${todo.text}`,
+      });
+    });
+
+    // --- Conditional/branching coverage ---
+    if (ca.conditionals.length > 3 && depthConfig.edgeCases) {
+      const complexBranches = ca.conditionals.slice(0, 10);
+      cases.push({
+        title: `Unit: Branch coverage — all conditional paths tested`,
+        type: 'unit',
+        priority: 'high',
+        preconditions: `${file} is loaded with code coverage tooling enabled`,
+        steps: [
+          `Identify all ${ca.conditionals.length} conditional branches in ${file}`,
+          ...complexBranches.slice(0, 5).map(c =>
+            `Test both true/false paths for condition at line ${c.lineNum}: ${c.condition.substring(0, 60)}`
+          ),
+          'Verify branch coverage reaches at least 80%',
+        ],
+        expectedResult: `All conditional branches are exercised with correct behavior in each path`,
+        notes: `Total conditionals: ${ca.conditionals.length} | Total loops: ${ca.loops.length}`,
+      });
+    }
+
+    return cases;
+  }
+
+  // ============================================================
+  // Code Integration Test Cases (from source code analysis)
+  // ============================================================
+  function generateCodeIntegrationCases(analysis, depthConfig) {
+    const cases = [];
+    const ca = analysis.codeAnalysis;
+    if (!ca || !ca.isSourceCode) return cases;
+
+    // --- Import/dependency integration tests ---
+    const externalDeps = ca.imports.filter(imp =>
+      !imp.module.startsWith('.') && !imp.module.startsWith('/')
+    );
+    if (externalDeps.length > 0) {
+      cases.push({
+        title: `Integration: External dependencies — verified compatibility`,
+        type: 'integration',
+        priority: 'high',
+        preconditions: `All dependencies are installed`,
+        steps: [
+          ...externalDeps.slice(0, 6).map(dep =>
+            `Verify ${dep.module} functions [${dep.names.join(', ')}] work correctly when called from ${ca.fileName}`
+          ),
+          'Run full integration test suite without mocks',
+          'Verify no version conflicts or breaking API changes',
+        ],
+        expectedResult: `All external dependency integrations function correctly end-to-end`,
+        notes: `${externalDeps.length} external dependencies detected`,
+      });
+    }
+
+    // --- API route integration tests ---
+    ca.apiRoutes.forEach(route => {
+      cases.push({
+        title: `Integration: ${route.method} ${route.path} — full request lifecycle`,
+        type: 'integration',
+        priority: 'critical',
+        preconditions: `Server is running, database is seeded with test data`,
+        steps: [
+          `Send real ${route.method} request to ${route.path}`,
+          'Verify request passes through middlewares (auth, validation)',
+          'Verify handler processes request with real database',
+          'Verify response matches API contract/schema',
+          'Verify database state is updated correctly (if write operation)',
+        ],
+        expectedResult: `Full request from client → middleware → handler → database → response works correctly`,
+        notes: `Line ${route.lineNum}`,
+      });
+    });
+
+    // --- Database integration ---
+    if (ca.dbOperations.length > 0) {
+      cases.push({
+        title: `Integration: Database operations — real DB connectivity`,
+        type: 'integration',
+        priority: 'critical',
+        preconditions: `Test database is running with schema applied`,
+        steps: [
+          'Connect to test database',
+          'Run all database operations against real database',
+          'Verify data persistence (write then read back)',
+          'Verify transactions commit/rollback correctly',
+          'Verify constraints (unique, foreign key, not null) are enforced',
+        ],
+        expectedResult: `All database operations work correctly against a real database`,
+        notes: `${ca.dbOperations.length} DB operations detected`,
+      });
+    }
+
+    // --- Class inheritance integration ---
+    ca.classes.filter(cls => cls.extends).forEach(cls => {
+      cases.push({
+        title: `Integration: ${cls.name} extends ${cls.extends} — inheritance works`,
+        type: 'integration',
+        priority: 'high',
+        preconditions: `Both ${cls.name} and ${cls.extends} are loaded`,
+        steps: [
+          `Create instance of ${cls.name}`,
+          `Verify inherited methods from ${cls.extends} work correctly`,
+          'Verify overridden methods produce correct results',
+          'Verify polymorphic behavior (${cls.name} can be used where ${cls.extends} is expected)',
+        ],
+        expectedResult: `Inheritance chain works correctly — overrides, super calls, and polymorphism all function`,
+        notes: `Line ${cls.lineNum}`,
+      });
+    });
+
+    return cases;
+  }
+
+  // ============================================================
   function inferPlanName(analysis) {
+    if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
+      const ca = analysis.codeAnalysis;
+      const mainEntity = ca.classes.length > 0 ? ca.classes[0].name :
+                         ca.functions.length > 0 ? ca.functions[0].name + '()' : ca.fileName;
+      return `Test Plan: ${mainEntity} (${ca.language})`;
+    }
     if (analysis.sections.length > 0) {
       return `Test Plan: ${analysis.sections[0]}`;
     }

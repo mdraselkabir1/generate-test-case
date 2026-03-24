@@ -313,8 +313,8 @@
                     <i class="fas fa-cloud-upload-alt"></i>
                     <h3>Drop your file here</h3>
                     <p>or click to browse</p>
-                    <small>Supports: .docx, .pdf, .txt, .md, .xlsx, .csv</small>
-                    <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.xlsx,.csv,.doc" hidden>
+                    <small>Supports: Source code (.js, .py, .java, .ts, .go, .rs, .c, .cpp, .rb, .php, etc.), Docs (.docx, .pdf, .txt, .md, .xlsx, .csv), Config (.json, .yaml, .xml, .env)</small>
+                    <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.xlsx,.csv,.doc,.js,.jsx,.ts,.tsx,.mjs,.py,.java,.kt,.c,.h,.cpp,.hpp,.cs,.go,.rs,.swift,.dart,.rb,.php,.sh,.bash,.sql,.graphql,.html,.htm,.css,.scss,.xml,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.proto,.dockerfile,.makefile,.vue,.svelte,.ex,.erl,.hs,.clj,.feature,.spec,.rst,.adoc,.log,.tf,.hcl,.groovy,.scala,.lua,.r,.pl" hidden>
                   </div>
                   <div id="filePreview" class="content-preview hidden">
                     <div class="preview-header">
@@ -347,6 +347,7 @@
                       <select id="testType" class="form-input">
                         <option value="all">All Types</option>
                         <option value="functional">Functional</option>
+                        <option value="unit">Unit Test</option>
                         <option value="ui">UI/UX</option>
                         <option value="api">API</option>
                         <option value="security">Security</option>

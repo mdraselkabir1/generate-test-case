@@ -6,12 +6,46 @@ const Parser = (() => {
   /**
    * Parse uploaded file and return extracted text content.
    */
+  // Source code and documentation file extensions
+  const CODE_EXTENSIONS = new Set([
+    'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
+    'py', 'pyw',
+    'java', 'kt', 'kts', 'scala', 'groovy',
+    'c', 'h', 'cpp', 'hpp', 'cc', 'cxx',
+    'cs', 'fs', 'vb',
+    'go', 'rs', 'swift', 'dart', 'lua', 'r',
+    'rb', 'php', 'pl', 'pm',
+    'sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd',
+    'sql', 'graphql', 'gql',
+    'html', 'htm', 'css', 'scss', 'sass', 'less',
+    'xml', 'xsl', 'xsd', 'wsdl',
+    'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env',
+    'proto', 'thrift', 'avsc',
+    'dockerfile', 'makefile', 'cmake',
+    'tf', 'hcl',
+    'vue', 'svelte',
+    'ex', 'exs', 'erl', 'hrl',
+    'hs', 'elm', 'clj', 'cljs',
+  ]);
+
+  const DOC_EXTENSIONS = new Set([
+    'md', 'mdx', 'rst', 'adoc', 'txt', 'rtf', 'log',
+    'feature', 'story', 'spec',
+  ]);
+
   async function parseFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
+    // Also handle extensionless files like Dockerfile, Makefile
+    const baseName = file.name.split('/').pop().toLowerCase();
+
+    if (CODE_EXTENSIONS.has(ext) || CODE_EXTENSIONS.has(baseName)) {
+      const raw = await readAsText(file);
+      return annotateSourceCode(raw, ext, file.name);
+    }
+    if (DOC_EXTENSIONS.has(ext)) {
+      return await readAsText(file);
+    }
     switch (ext) {
-      case 'txt':
-      case 'md':
-        return await readAsText(file);
       case 'docx':
         return await parseDocx(file);
       case 'pdf':
@@ -20,8 +54,58 @@ const Parser = (() => {
       case 'csv':
         return await parseSpreadsheet(file);
       default:
+        // Try reading as text (best-effort for unknown extensions)
+        try {
+          const text = await readAsText(file);
+          if (text && text.length > 0 && !/\x00/.test(text.substring(0, 500))) {
+            return annotateSourceCode(text, ext, file.name);
+          }
+        } catch { /* not text */ }
         throw new Error(`Unsupported file type: .${ext}`);
     }
+  }
+
+  /**
+   * Annotate source code with metadata header so the analyzer knows it's code.
+   */
+  function annotateSourceCode(raw, ext, fileName) {
+    const lang = detectLanguage(ext);
+    const lineCount = raw.split('\n').length;
+    const header = [
+      `[SOURCE_CODE]`,
+      `File: ${fileName}`,
+      `Language: ${lang}`,
+      `Lines: ${lineCount}`,
+      `[/SOURCE_CODE_META]`,
+      '',
+    ].join('\n');
+    return header + raw;
+  }
+
+  function detectLanguage(ext) {
+    const map = {
+      js: 'JavaScript', jsx: 'JavaScript (React)', ts: 'TypeScript', tsx: 'TypeScript (React)',
+      mjs: 'JavaScript (ESM)', cjs: 'JavaScript (CJS)',
+      py: 'Python', pyw: 'Python',
+      java: 'Java', kt: 'Kotlin', kts: 'Kotlin Script', scala: 'Scala', groovy: 'Groovy',
+      c: 'C', h: 'C/C++ Header', cpp: 'C++', hpp: 'C++ Header', cc: 'C++', cxx: 'C++',
+      cs: 'C#', fs: 'F#', vb: 'Visual Basic',
+      go: 'Go', rs: 'Rust', swift: 'Swift', dart: 'Dart', lua: 'Lua', r: 'R',
+      rb: 'Ruby', php: 'PHP', pl: 'Perl', pm: 'Perl Module',
+      sh: 'Shell', bash: 'Bash', zsh: 'Zsh', ps1: 'PowerShell', bat: 'Batch', cmd: 'Batch',
+      sql: 'SQL', graphql: 'GraphQL', gql: 'GraphQL',
+      html: 'HTML', htm: 'HTML', css: 'CSS', scss: 'SCSS', sass: 'Sass', less: 'Less',
+      xml: 'XML', json: 'JSON', yaml: 'YAML', yml: 'YAML', toml: 'TOML',
+      ini: 'INI', cfg: 'Config', conf: 'Config', env: 'Environment',
+      proto: 'Protocol Buffers', thrift: 'Thrift', avsc: 'Avro Schema',
+      dockerfile: 'Dockerfile', makefile: 'Makefile', cmake: 'CMake',
+      tf: 'Terraform', hcl: 'HCL',
+      vue: 'Vue', svelte: 'Svelte',
+      ex: 'Elixir', exs: 'Elixir Script', erl: 'Erlang',
+      hs: 'Haskell', elm: 'Elm', clj: 'Clojure', cljs: 'ClojureScript',
+      feature: 'Gherkin', spec: 'Specification',
+    };
+    return map[ext] || ext.toUpperCase();
   }
 
   function readAsText(file) {
@@ -555,13 +639,49 @@ const Parser = (() => {
     const boundaryValues = [];
     const securityConcerns = [];
 
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    // --- Source code analysis structures ---
+    const codeAnalysis = {
+      isSourceCode: false,
+      language: '',
+      fileName: '',
+      functions: [],    // { name, params, returnType, lineNum, isAsync, isExported, visibility, body }
+      classes: [],       // { name, methods[], properties[], extends, implements, lineNum }
+      imports: [],       // { module, names[], lineNum }
+      exports: [],       // { name, type, lineNum }
+      errorHandling: [], // { type: 'try-catch'|'throw'|'assert', context, lineNum }
+      conditionals: [],  // { condition, lineNum, complexity }
+      loops: [],         // { type, iterable, lineNum }
+      constants: [],     // { name, value, lineNum }
+      typeDefinitions: [], // { name, fields, lineNum }
+      apiRoutes: [],     // { method, path, handler, lineNum }
+      dbOperations: [],  // { type, table/model, lineNum }
+      envVariables: [],  // { name, lineNum }
+      dependencies: [],  // from package.json / requirements.txt / etc
+      todos: [],         // TODO/FIXME/HACK/XXX comments
+      complexity: { functions: 0, branches: 0, loops: 0, depth: 0 },
+    };
+
+    const lines = text.split('\n');
+    const trimmedLines = lines.map(l => l.trim()).filter(Boolean);
+
+    // Detect if this is source code from our annotation
+    const sourceMatch = text.match(/^\[SOURCE_CODE\]\nFile: (.+)\nLanguage: (.+)\nLines: (\d+)\n\[\/SOURCE_CODE_META\]/);
+    if (sourceMatch) {
+      codeAnalysis.isSourceCode = true;
+      codeAnalysis.fileName = sourceMatch[1];
+      codeAnalysis.language = sourceMatch[2];
+    }
+
+    // --- Source code deep extraction ---
+    if (codeAnalysis.isSourceCode) {
+      analyzeSourceCode(lines, codeAnalysis);
+    }
 
     let currentSection = '';
     let currentWorkflow = [];
     let workflowActive = false;
 
-    for (const line of lines) {
+    for (const line of trimmedLines) {
       // Detect headings / sections
       if (/^#{1,6}\s/.test(line) || /^[A-Z][A-Za-z\s]{2,50}:?\s*$/.test(line)) {
         // close any active workflow
@@ -731,9 +851,312 @@ const Parser = (() => {
       stateTransitions: uniqueFilter(stateTransitions, 20),
       boundaryValues: boundaryValues.slice(0, 20),
       securityConcerns: uniqueFilter(securityConcerns, 30),
-      totalLines: lines.length,
+      totalLines: trimmedLines.length,
       rawText: text,
+      codeAnalysis,
     };
+  }
+
+  /**
+   * Deep source code analyzer — extracts functions, classes, imports, routes,
+   * error handling, conditionals, loops, DB operations, and complexity metrics.
+   */
+  function analyzeSourceCode(lines, ca) {
+    const lang = ca.language.toLowerCase();
+    const isJS = /javascript|typescript|react/i.test(lang);
+    const isPy = /python/i.test(lang);
+    const isJava = /java(?!script)|kotlin|scala|groovy/i.test(lang);
+    const isGo = /^go$/i.test(lang);
+    const isRust = /rust/i.test(lang);
+    const isCSharp = /c#|f#/i.test(lang);
+    const isCpp = /^c$|c\+\+|c\/c/i.test(lang);
+    const isRuby = /ruby/i.test(lang);
+    const isPHP = /php/i.test(lang);
+    const isSwift = /swift/i.test(lang);
+    const isSQL = /sql/i.test(lang);
+    const isShell = /shell|bash|zsh|powershell|batch/i.test(lang);
+    const isConfig = /json|yaml|yml|toml|ini|config|env|dockerfile|terraform|hcl/i.test(lang);
+
+    let braceDepth = 0;
+    let currentClassContext = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      const lineNum = i + 1;
+
+      // Skip meta header
+      if (trimmed.startsWith('[SOURCE_CODE') || trimmed.startsWith('[/SOURCE_CODE')) continue;
+      if (/^(File|Language|Lines):/.test(trimmed)) continue;
+
+      // Track brace depth for context
+      braceDepth += (line.match(/{/g) || []).length;
+      braceDepth -= (line.match(/}/g) || []).length;
+      if (braceDepth < 0) braceDepth = 0;
+
+      // --- TODO / FIXME / HACK ---
+      const todoMatch = trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX|BUG|OPTIMIZE|WARNING)[:\s]+(.*)/i) ||
+                         trimmed.match(/#\s*(TODO|FIXME|HACK|XXX|BUG|OPTIMIZE|WARNING)[:\s]+(.*)/i);
+      if (todoMatch) {
+        ca.todos.push({ type: todoMatch[1].toUpperCase(), text: todoMatch[2].trim(), lineNum });
+      }
+
+      // --- Imports / Dependencies ---
+      // JS/TS
+      if (isJS) {
+        const importMatch = trimmed.match(/^import\s+(?:(?:{([^}]+)}|(\w+))\s+from\s+)?['"]([@\w\/.#-]+)['"]/);
+        if (importMatch) {
+          const names = importMatch[1] ? importMatch[1].split(',').map(s => s.trim()) : importMatch[2] ? [importMatch[2]] : [];
+          ca.imports.push({ module: importMatch[3], names, lineNum });
+        }
+        const requireMatch = trimmed.match(/(?:const|let|var)\s+(?:{([^}]+)}|(\w+))\s*=\s*require\(['"]([@\w\/.#-]+)['"]\)/);
+        if (requireMatch) {
+          const names = requireMatch[1] ? requireMatch[1].split(',').map(s => s.trim()) : [requireMatch[2]];
+          ca.imports.push({ module: requireMatch[3], names, lineNum });
+        }
+      }
+      // Python
+      if (isPy) {
+        const pyImport = trimmed.match(/^(?:from\s+([\w.]+)\s+)?import\s+(.+)/);
+        if (pyImport) {
+          const module = pyImport[1] || pyImport[2].split(',')[0].trim();
+          const names = pyImport[2].split(',').map(s => s.trim().split(/\s+as\s+/)[0]);
+          ca.imports.push({ module, names, lineNum });
+        }
+      }
+      // Java/Kotlin/C#
+      if (isJava || isCSharp) {
+        const javaImport = trimmed.match(/^(?:import|using)\s+([\w.*]+);?/);
+        if (javaImport) {
+          ca.imports.push({ module: javaImport[1], names: [javaImport[1].split('.').pop()], lineNum });
+        }
+      }
+      // Go
+      if (isGo) {
+        const goImport = trimmed.match(/^import\s+(?:"([\w\/.]+)"|\()/);
+        if (goImport && goImport[1]) {
+          ca.imports.push({ module: goImport[1], names: [goImport[1].split('/').pop()], lineNum });
+        }
+      }
+      // Rust
+      if (isRust) {
+        const rustUse = trimmed.match(/^use\s+([\w:]+)(?:::{(.+)})?;/);
+        if (rustUse) {
+          const names = rustUse[2] ? rustUse[2].split(',').map(s => s.trim()) : [rustUse[1].split('::').pop()];
+          ca.imports.push({ module: rustUse[1], names, lineNum });
+        }
+      }
+
+      // --- Function/Method Detection ---
+      let funcMatch = null;
+
+      // JS/TS: function declarations, arrow functions, class methods
+      if (isJS) {
+        funcMatch = trimmed.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/)
+          || trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|(\w+))\s*=>/)
+          || trimmed.match(/^(?:export\s+)?(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*\w+)?\s*{/)
+          || trimmed.match(/^(?:public|private|protected|static|async|get|set)\s+(?:async\s+)?(\w+)\s*\(([^)]*)\)/);
+      }
+      // Python
+      if (isPy) {
+        funcMatch = trimmed.match(/^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)/);
+      }
+      // Java/Kotlin/C#
+      if (isJava || isCSharp) {
+        funcMatch = trimmed.match(/(?:public|private|protected|static|final|override|virtual|abstract|async|suspend)\s+(?:[\w<>\[\],\s]+\s+)?(\w+)\s*\(([^)]*)\)\s*(?:throws\s+[\w,\s]+)?{?/);
+      }
+      // Go
+      if (isGo) {
+        funcMatch = trimmed.match(/^func\s+(?:\(\s*\w+\s+\*?\w+\s*\)\s+)?(\w+)\s*\(([^)]*)\)/);
+      }
+      // Rust
+      if (isRust) {
+        funcMatch = trimmed.match(/^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]+>)?\s*\(([^)]*)\)/);
+      }
+      // Ruby
+      if (isRuby) {
+        funcMatch = trimmed.match(/^def\s+(?:self\.)?(\w+[?!]?)\s*(?:\(([^)]*)\))?/);
+      }
+      // PHP
+      if (isPHP) {
+        funcMatch = trimmed.match(/(?:public|private|protected|static)?\s*function\s+(\w+)\s*\(([^)]*)\)/);
+      }
+      // Swift
+      if (isSwift) {
+        funcMatch = trimmed.match(/(?:public|private|internal|open|static|class|override|mutating)?\s*func\s+(\w+)\s*\(([^)]*)\)/);
+      }
+
+      if (funcMatch && funcMatch[1]) {
+        const name = funcMatch[1];
+        // Skip constructors, test lifecycle, common noise
+        if (!/^(constructor|__init__|setUp|tearDown|beforeEach|afterEach|describe|it|test)$/.test(name)) {
+          const params = (funcMatch[2] || '').split(',').map(p => p.trim()).filter(Boolean);
+          const isAsync = /\basync\b/.test(trimmed) || /\bsuspend\b/.test(trimmed);
+          const isExported = /^export/.test(trimmed) || /^pub\b/.test(trimmed) || /^public\b/.test(trimmed);
+          const visibility = /private/.test(trimmed) ? 'private' : /protected/.test(trimmed) ? 'protected' : 'public';
+
+          // Grab function body (next few lines for context)
+          const bodyLines = [];
+          for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
+            if (/^}|^\\s*$/.test(lines[j].trim()) && bodyLines.length > 2) break;
+            bodyLines.push(lines[j].trim());
+          }
+
+          ca.functions.push({
+            name, params, isAsync, isExported, visibility, lineNum,
+            body: bodyLines.join('\\n'),
+            returnType: detectReturnType(trimmed, bodyLines),
+            hasErrorHandling: bodyLines.some(l => /try|catch|throw|raise|except|panic|unwrap|expect/.test(l)),
+          });
+        }
+      }
+
+      // --- Class Detection ---
+      const classMatch = trimmed.match(/^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)\s*(?:extends\s+(\w+))?\s*(?:implements\s+([\w,\s]+))?/)
+        || (isPy && trimmed.match(/^class\s+(\w+)\s*(?:\(([^)]*)\))?:/))
+        || (isRust && trimmed.match(/^(?:pub\s+)?struct\s+(\w+)/))
+        || (isGo && trimmed.match(/^type\s+(\w+)\s+struct/))
+        || (isRuby && trimmed.match(/^class\s+(\w+)\s*(?:<\s*(\w+))?/));
+      if (classMatch) {
+        currentClassContext = {
+          name: classMatch[1],
+          extends: classMatch[2] || null,
+          implements: classMatch[3] ? classMatch[3].split(',').map(s => s.trim()) : [],
+          methods: [],
+          properties: [],
+          lineNum,
+        };
+        ca.classes.push(currentClassContext);
+      }
+
+      // --- Error Handling ---
+      if (/\btry\s*{|\btry:|\btry\s*\(/.test(trimmed)) {
+        ca.errorHandling.push({ type: 'try-catch', context: trimmed.substring(0, 100), lineNum });
+        ca.complexity.branches++;
+      }
+      if (/\bthrow\s+new|\bthrow\s+\w|\braise\s+\w|\bpanic!\(|\bpanic\(/.test(trimmed)) {
+        ca.errorHandling.push({ type: 'throw', context: trimmed.substring(0, 100), lineNum });
+      }
+      if (/\bassert|\bassert_eq|\bassert_ne|expect\(/.test(trimmed)) {
+        ca.errorHandling.push({ type: 'assert', context: trimmed.substring(0, 100), lineNum });
+      }
+
+      // --- Conditionals ---
+      if (/\bif\s*\(|\bif\s+\w|\belse\s+if|\belif\b|\bswitch\s*\(|\bmatch\s+\w|\bwhen\s*\(/.test(trimmed)) {
+        const condMatch = trimmed.match(/(?:if|elif|else if|switch|match|when)\s*\(?(.{0,80})/);
+        ca.conditionals.push({ condition: condMatch ? condMatch[1].trim() : trimmed.substring(0, 80), lineNum });
+        ca.complexity.branches++;
+      }
+
+      // --- Loops ---
+      if (/\bfor\s*\(|\bfor\s+\w|\bwhile\s*\(|\bwhile\s+\w|\bloop\s*{|\b\.forEach\(|\b\.map\(|\b\.filter\(|\b\.reduce\(/.test(trimmed)) {
+        const loopType = /while/.test(trimmed) ? 'while' : /\.forEach|\.map|\.filter|\.reduce/.test(trimmed) ? 'iterator' : 'for';
+        ca.loops.push({ type: loopType, context: trimmed.substring(0, 80), lineNum });
+        ca.complexity.loops++;
+      }
+
+      // --- Constants ---
+      if (/^(?:export\s+)?(?:const|final|val|static\s+final|#define|let\s+\w+\s*:\s*\w+\s*=)\s+([A-Z_][A-Z0-9_]+)\s*[=:]/.test(trimmed)) {
+        const constMatch = trimmed.match(/(?:const|final|val|static\s+final|#define|let)\s+([A-Z_][A-Z0-9_]+)\s*[=:]\s*(.{0,60})/);
+        if (constMatch) {
+          ca.constants.push({ name: constMatch[1], value: constMatch[2].trim(), lineNum });
+        }
+      }
+
+      // --- Type Definitions / Interfaces ---
+      const typeMatch = trimmed.match(/^(?:export\s+)?(?:interface|type|enum)\s+(\w+)/)
+        || (isRust && trimmed.match(/^(?:pub\s+)?enum\s+(\w+)/))
+        || (isPy && trimmed.match(/^class\s+(\w+)\((?:TypedDict|BaseModel|Enum|NamedTuple)\)/));
+      if (typeMatch) {
+        ca.typeDefinitions.push({ name: typeMatch[1], lineNum });
+      }
+
+      // --- API Routes ---
+      // Express.js / Koa / Fastify
+      const routeMatch = trimmed.match(/(?:app|router|server)\.(get|post|put|patch|delete|all)\s*\(\s*['"](\/[^'"]*)['"]/i);
+      if (routeMatch) {
+        ca.apiRoutes.push({ method: routeMatch[1].toUpperCase(), path: routeMatch[2], lineNum });
+      }
+      // Python Flask/Django/FastAPI
+      const pyRouteMatch = trimmed.match(/@(?:app|router|api)\.(route|get|post|put|patch|delete)\s*\(\s*['"](\/[^'"]*)['"]/i)
+        || trimmed.match(/path\(\s*['"]([\w\/<>:]+)['"]/);
+      if (pyRouteMatch) {
+        const method = pyRouteMatch[1] || 'GET';
+        ca.apiRoutes.push({ method: method.toUpperCase(), path: pyRouteMatch[2], lineNum });
+      }
+      // Java Spring / annotations
+      const springRoute = trimmed.match(/@(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\s*\(\s*(?:value\s*=\s*)?['"](\/[^'"]*)['"]/i);
+      if (springRoute) {
+        const methodMap = { getmapping: 'GET', postmapping: 'POST', putmapping: 'PUT', deletemapping: 'DELETE', requestmapping: 'GET' };
+        ca.apiRoutes.push({ method: methodMap[springRoute[1].toLowerCase()] || 'GET', path: springRoute[2], lineNum });
+      }
+      // Go Gin/Echo/Chi
+      const goRoute = trimmed.match(/(?:r|router|e|g|group)\.(GET|POST|PUT|PATCH|DELETE)\s*\(\s*['"](\/[^'"]*)['"]/i);
+      if (goRoute) {
+        ca.apiRoutes.push({ method: goRoute[1].toUpperCase(), path: goRoute[2], lineNum });
+      }
+
+      // --- Database Operations ---
+      if (/\.(find|findOne|findMany|findAll|create|update|delete|destroy|save|insert|select|where|aggregate|count|query|execute|raw)\s*\(/.test(trimmed) ||
+          /\b(SELECT|INSERT|UPDATE|DELETE|CREATE TABLE|ALTER TABLE|DROP TABLE|JOIN)\b/.test(trimmed)) {
+        const dbOp = trimmed.match(/\.(find\w*|create|update|delete|destroy|save|insert|select|where|aggregate)\s*\(/) ||
+                     trimmed.match(/\b(SELECT|INSERT|UPDATE|DELETE|CREATE TABLE)\b/i);
+        if (dbOp) {
+          ca.dbOperations.push({ type: (dbOp[1] || dbOp[0]).toLowerCase(), context: trimmed.substring(0, 80), lineNum });
+        }
+      }
+
+      // --- Environment Variables ---
+      const envMatch = trimmed.match(/process\.env\.(\w+)|os\.environ(?:\.get)?\s*\(\s*['"]([\w]+)['"]|getenv\s*\(\s*['"]([\w]+)['"]|ENV\[['"](\w+)['"]\]/);
+      if (envMatch) {
+        const envName = envMatch[1] || envMatch[2] || envMatch[3] || envMatch[4];
+        ca.envVariables.push({ name: envName, lineNum });
+      }
+
+      // --- Exports ---
+      if (isJS) {
+        const expMatch = trimmed.match(/^(?:module\.)?exports?\s*(?:\.(\w+))?/) || trimmed.match(/^export\s+(?:default\s+)?(?:class|function|const|let|var|interface|type|enum)\s+(\w+)/);
+        if (expMatch && expMatch[1]) {
+          ca.exports.push({ name: expMatch[1], lineNum });
+        }
+      }
+    }
+
+    // Compute complexity score
+    ca.complexity.functions = ca.functions.length;
+    ca.complexity.depth = Math.max(0, ...ca.functions.map(f => {
+      const body = f.body || '';
+      let d = 0, max = 0;
+      for (const ch of body) { if (ch === '{') { d++; max = Math.max(max, d); } else if (ch === '}') d--; }
+      return max;
+    }));
+
+    // Cross-reference: add methods to their classes
+    if (ca.classes.length > 0 && ca.functions.length > 0) {
+      for (const cls of ca.classes) {
+        cls.methods = ca.functions.filter(f => f.lineNum > cls.lineNum && f.lineNum < cls.lineNum + 200);
+      }
+    }
+  }
+
+  function detectReturnType(declaration, bodyLines) {
+    // TypeScript / Rust / Go explicit return types
+    const explicitMatch = declaration.match(/\)\s*:\s*([\w<>\[\]|&]+)/);
+    if (explicitMatch) return explicitMatch[1];
+    // Java / C# return type before method name
+    const javaMatch = declaration.match(/(?:public|private|protected|static)\s+([\w<>\[\]]+)\s+\w+\s*\(/);
+    if (javaMatch && javaMatch[1] !== 'void') return javaMatch[1];
+    // Infer from body
+    const returnLine = bodyLines.find(l => /\breturn\b/.test(l));
+    if (returnLine) {
+      if (/return\s+true|return\s+false/.test(returnLine)) return 'boolean';
+      if (/return\s+\d/.test(returnLine)) return 'number';
+      if (/return\s+['"`]/.test(returnLine)) return 'string';
+      if (/return\s+\[/.test(returnLine)) return 'array';
+      if (/return\s+{/.test(returnLine)) return 'object';
+      if (/return\s+null|return\s+None/.test(returnLine)) return 'nullable';
+    }
+    return 'unknown';
   }
 
   return { parseFile, fetchUrl, analyzeContent };

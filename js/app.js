@@ -380,7 +380,10 @@
       await animateProgress('step-parse', 0, 'Parsing content...');
       const analysis = Parser.analyzeContent(content);
 
-      await animateProgress('step-analyze', 30, `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`);
+      const analyzeMsg = analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode
+        ? `Found ${analysis.codeAnalysis.functions.length} functions, ${analysis.codeAnalysis.classes.length} classes, ${analysis.codeAnalysis.apiRoutes.length} routes in ${analysis.codeAnalysis.language}...`
+        : `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`;
+      await animateProgress('step-analyze', 30, analyzeMsg);
 
       await animateProgress('step-generate', 60, 'Generating test cases...');
       const plan = Generator.generateTestPlan(analysis, options);
