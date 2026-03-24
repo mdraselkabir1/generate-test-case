@@ -861,6 +861,88 @@ textarea.form-input {
   flex-shrink: 0;
 }
 
+/* ===== Bookmarklet Section ===== */
+.bookmarklet-section {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.bookmarklet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.bookmarklet-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.bookmarklet-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.btn-bookmarklet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: grab;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+  border: 2px solid transparent;
+}
+
+.btn-bookmarklet:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+
+.btn-bookmarklet:active {
+  cursor: grabbing;
+}
+
+.bookmarklet-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.bookmarklet-details {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.bookmarklet-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.bookmarklet-details ol {
+  margin: 8px 0 0 20px;
+  line-height: 1.8;
+}
+
 /* ===== Page Actions ===== */
 .page-actions {
   display: flex;

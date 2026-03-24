@@ -276,6 +276,35 @@
                     </div>
                     <div class="preview-body" id="urlPreviewBody"></div>
                   </div>
+
+                  <!-- Bookmarklet Helper -->
+                  <div class="bookmarklet-section">
+                    <div class="bookmarklet-header">
+                      <i class="fas fa-magic"></i>
+                      <strong>Can't fetch? Use the Page Grabber bookmarklet</strong>
+                    </div>
+                    <p class="bookmarklet-desc">
+                      Works on <strong>any</strong> authenticated page — OAuth, SSO, MFA, or any login. Drag the button below to your bookmarks bar, 
+                      then click it on any page to grab its content.
+                    </p>
+                    <div class="bookmarklet-actions">
+                      <a id="grabPageBookmarklet" class="btn btn-bookmarklet" href="#" title="Drag this to your bookmarks bar"
+                        onclick="event.preventDefault(); showToast('Drag this button to your bookmarks bar, then click it on any page!', 'info');">
+                        <i class="fas fa-hand-pointer"></i> 📋 Grab Page
+                      </a>
+                      <span class="bookmarklet-hint">← Drag to bookmarks bar</span>
+                    </div>
+                    <details class="bookmarklet-details">
+                      <summary>How does it work?</summary>
+                      <ol>
+                        <li>Drag the <strong>"📋 Grab Page"</strong> button to your browser's bookmarks bar</li>
+                        <li>Navigate to any authenticated page (e.g. Odoo, Jira, Coverity)</li>
+                        <li>Click the bookmarklet in your bookmarks bar</li>
+                        <li>The page content is copied to your clipboard</li>
+                        <li>Come back here, go to <strong>Text Input</strong> tab, and press <strong>Ctrl+V / Cmd+V</strong></li>
+                      </ol>
+                    </details>
+                  </div>
                 </div>
 
                 <!-- File Tab -->

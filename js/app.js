@@ -24,6 +24,7 @@
     bindSettings();
     bindModal();
     bindMisc();
+    initBookmarklet();
     updateDashboard();
 
     // Go to generator if URL has #generate
@@ -836,6 +837,76 @@
         showToast('History cleared', 'info');
       }
     });
+  }
+
+  // ============================================================
+  // Page Grabber Bookmarklet
+  // ============================================================
+  function initBookmarklet() {
+    // Build the bookmarklet JS (runs on the target page)
+    const bookmarkletCode = `
+(function(){
+  try {
+    var removeTags = ['script','style','nav','footer','header','iframe','noscript','svg'];
+    var clone = document.body.cloneNode(true);
+    removeTags.forEach(function(t){ clone.querySelectorAll(t).forEach(function(e){ e.remove(); }); });
+    var lines = [];
+    lines.push('# ' + document.title);
+    lines.push('URL: ' + location.href);
+    lines.push('');
+    function walk(node) {
+      if (node.nodeType === 3) {
+        var t = node.textContent.trim();
+        if (t) lines.push(t);
+      } else if (node.nodeType === 1) {
+        var tag = node.tagName.toLowerCase();
+        if (['h1','h2','h3','h4','h5','h6'].indexOf(tag) >= 0) {
+          lines.push('');
+          lines.push('## ' + node.textContent.trim());
+        } else if (tag === 'li') {
+          lines.push('- ' + node.textContent.trim());
+        } else if (tag === 'tr') {
+          var cells = [];
+          node.querySelectorAll('td,th').forEach(function(c){ cells.push(c.textContent.trim()); });
+          if (cells.length) lines.push('| ' + cells.join(' | ') + ' |');
+        } else if (['table','thead','tbody'].indexOf(tag) >= 0) {
+          node.childNodes.forEach(walk);
+        } else if (['p','div','section','article','main'].indexOf(tag) >= 0) {
+          node.childNodes.forEach(walk);
+          lines.push('');
+        } else {
+          node.childNodes.forEach(walk);
+        }
+      }
+    }
+    var main = clone.querySelector('main,article,[role=main],.content,.main,#content,#main');
+    walk(main || clone);
+    var text = lines.join('\\n').replace(/\\n{3,}/g,'\\n\\n').trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function(){
+        alert('Page content copied to clipboard! (' + text.length + ' chars)\\n\\nNow go to Test Case Generator → Text Input tab and paste (Ctrl+V / Cmd+V).');
+      }, function(){
+        prompt('Auto-copy failed. Select all text below and copy manually:', text.substring(0, 5000));
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      alert('Page content copied! (' + text.length + ' chars)\\n\\nGo to Test Case Generator → Text Input tab and paste.');
+    }
+  } catch(e) {
+    alert('Grab Page error: ' + e.message);
+  }
+})();`.trim();
+
+    const encoded = 'javascript:' + encodeURIComponent(bookmarkletCode);
+    const el = $('#grabPageBookmarklet');
+    if (el) {
+      el.href = encoded;
+    }
   }
 
   // ============================================================
