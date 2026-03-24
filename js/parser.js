@@ -1159,5 +1159,126 @@ const Parser = (() => {
     return 'unknown';
   }
 
-  return { parseFile, fetchUrl, analyzeContent };
+  // ============================================================
+  // Project / Zip Parsing
+  // ============================================================
+
+  // Paths to skip when extracting project files
+  const SKIP_DIRS = /(?:^|\/)(?:node_modules|\.git|__pycache__|\.idea|\.vscode|vendor|\.next|\.nuxt|dist|build|out|target|bin|obj|\.gradle|\.mvn|\.cache|\.tox|\.eggs|\.mypy_cache|coverage|\.nyc_output)\//;
+  const SKIP_FILES = /(?:^|\/)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|composer\.lock|Cargo\.lock|go\.sum|\.DS_Store|Thumbs\.db)/;
+  const TEST_FILE_PATTERN = /(?:^|\/)(?:test[s_]?|__tests__|spec[s]?)\//i;
+  const TEST_NAME_PATTERN = /(?:\.test\.|\.spec\.|_test\.|_spec\.)/i;
+
+  /**
+   * Parse a .zip file containing project source code.
+   * Returns { text, stats } where text is all files concatenated with headers,
+   * and stats contains file counts by type.
+   */
+  async function parseProjectZip(file, options = {}) {
+    const includeTests = options.includeTests || false;
+    const includeDocs = options.includeDocs !== false; // default true
+
+    if (typeof JSZip === 'undefined') {
+      throw new Error('JSZip library not loaded. Please refresh the page and try again.');
+    }
+
+    const zip = await JSZip.loadAsync(file);
+    const fileEntries = [];
+
+    // Collect and filter files
+    zip.forEach((relativePath, zipEntry) => {
+      if (zipEntry.dir) return;
+
+      // Skip common non-source directories
+      if (SKIP_DIRS.test(relativePath)) return;
+      if (SKIP_FILES.test(relativePath)) return;
+
+      // Skip test files unless requested
+      if (!includeTests) {
+        if (TEST_FILE_PATTERN.test(relativePath) || TEST_NAME_PATTERN.test(relativePath)) return;
+      }
+
+      const ext = relativePath.split('.').pop().toLowerCase();
+      const baseName = relativePath.split('/').pop().toLowerCase();
+
+      const isCode = CODE_EXTENSIONS.has(ext) || CODE_EXTENSIONS.has(baseName);
+      const isDoc = DOC_EXTENSIONS.has(ext) || /^readme/i.test(baseName) || /^changelog/i.test(baseName) || /^contributing/i.test(baseName);
+
+      if (isCode || (isDoc && includeDocs)) {
+        fileEntries.push({ path: relativePath, ext, isCode, isDoc, entry: zipEntry });
+      }
+    });
+
+    if (fileEntries.length === 0) {
+      throw new Error('No supported source code or documentation files found in the zip. Make sure the zip contains source files (.js, .py, .java, etc.).');
+    }
+
+    // Sort: code files first (by directory depth), then docs
+    fileEntries.sort((a, b) => {
+      if (a.isCode !== b.isCode) return a.isCode ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+
+    // Limit to prevent browser memory issues
+    const MAX_FILES = 200;
+    const MAX_FILE_SIZE = 100 * 1024; // 100KB per file
+    const limited = fileEntries.slice(0, MAX_FILES);
+
+    // Build combined text
+    const parts = [];
+    const stats = { totalFiles: fileEntries.length, parsedFiles: 0, skippedLarge: 0, byLanguage: {}, byType: { code: 0, doc: 0 } };
+
+    // Project structure overview
+    parts.push('[PROJECT_STRUCTURE]');
+    parts.push(`Total files: ${fileEntries.length}${fileEntries.length > MAX_FILES ? ` (showing first ${MAX_FILES})` : ''}`);
+    parts.push('Files:');
+    fileEntries.forEach(f => parts.push(`  ${f.path}`));
+    parts.push('[/PROJECT_STRUCTURE]');
+    parts.push('');
+
+    // Extract each file
+    for (const entry of limited) {
+      try {
+        const content = await entry.entry.async('string');
+        if (content.length > MAX_FILE_SIZE) {
+          stats.skippedLarge++;
+          parts.push(`\n${'='.repeat(60)}`);
+          parts.push(`FILE: ${entry.path} (TRUNCATED — ${Math.round(content.length / 1024)}KB > ${MAX_FILE_SIZE / 1024}KB limit)`);
+          parts.push('='.repeat(60));
+          parts.push(annotateSourceCode(content.substring(0, MAX_FILE_SIZE), entry.ext, entry.path));
+          continue;
+        }
+
+        // Check if it's binary (contains null bytes)
+        if (/\x00/.test(content.substring(0, 500))) continue;
+
+        parts.push(`\n${'='.repeat(60)}`);
+        parts.push(`FILE: ${entry.path}`);
+        parts.push('='.repeat(60));
+
+        if (entry.isCode) {
+          parts.push(annotateSourceCode(content, entry.ext, entry.path));
+          stats.byType.code++;
+          const lang = detectLanguage(entry.ext);
+          stats.byLanguage[lang] = (stats.byLanguage[lang] || 0) + 1;
+        } else {
+          parts.push(content);
+          stats.byType.doc++;
+        }
+
+        stats.parsedFiles++;
+      } catch {
+        // Skip files that can't be read as text
+      }
+    }
+
+    const text = parts.join('\n');
+    if (text.trim().length < 100) {
+      throw new Error('Could not extract meaningful content from the zip file.');
+    }
+
+    return { text, stats };
+  }
+
+  return { parseFile, fetchUrl, analyzeContent, parseProjectZip };
 })();

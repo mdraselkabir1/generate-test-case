@@ -238,6 +238,30 @@
       $('#fileInput').value = '';
     });
 
+    // Project (zip) upload
+    const projectZone = $('#projectUploadZone');
+    const projectInput = $('#projectZipInput');
+    if (projectZone && projectInput) {
+      projectZone.addEventListener('click', () => projectInput.click());
+      projectZone.addEventListener('dragover', e => { e.preventDefault(); projectZone.classList.add('dragover'); });
+      projectZone.addEventListener('dragleave', () => projectZone.classList.remove('dragover'));
+      projectZone.addEventListener('drop', e => {
+        e.preventDefault();
+        projectZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleProjectZip(e.dataTransfer.files[0]);
+      });
+      projectInput.addEventListener('change', () => {
+        if (projectInput.files.length) handleProjectZip(projectInput.files[0]);
+      });
+      $('#clearProjectPreview').addEventListener('click', () => {
+        $('#projectPreview').classList.add('hidden');
+        $('#projectPreviewBody').textContent = '';
+        $('#projectStats').textContent = '';
+        parsedContent = '';
+        projectInput.value = '';
+      });
+    }
+
     // Generate button
     $('#generateBtn').addEventListener('click', startGeneration);
   }
@@ -333,6 +357,68 @@
     }
   }
 
+  async function handleProjectZip(file) {
+    const maxSize = 50 * 1024 * 1024; // 50MB for zip
+    if (file.size > maxSize) {
+      showToast('Zip file too large (max 50MB)', 'error');
+      return;
+    }
+    if (!file.name.endsWith('.zip')) {
+      showToast('Please upload a .zip file', 'error');
+      return;
+    }
+
+    const zone = $('#projectUploadZone');
+    zone.innerHTML = '<i class="fas fa-spinner fa-spin"></i><h3>Extracting project files...</h3><p>This may take a moment for large projects</p>';
+
+    try {
+      const includeTests = $('#includeTests').checked;
+      const includeDocs = $('#includeDocs').checked;
+      const result = await Parser.parseProjectZip(file, { includeTests, includeDocs });
+
+      parsedContent = result.text;
+      $('#projectName').textContent = file.name;
+
+      // Build stats display
+      const langList = Object.entries(result.stats.byLanguage)
+        .sort((a, b) => b[1] - a[1])
+        .map(([lang, count]) => `${lang}: ${count}`)
+        .join(', ');
+      $('#projectStats').textContent = `${result.stats.parsedFiles} files parsed (${result.stats.byType.code} code, ${result.stats.byType.doc} docs)`;
+
+      // Build preview
+      const preview = [
+        `Project: ${file.name}`,
+        `Files: ${result.stats.parsedFiles} of ${result.stats.totalFiles} total`,
+        `Languages: ${langList}`,
+        result.stats.skippedLarge > 0 ? `(${result.stats.skippedLarge} files truncated due to size)` : '',
+        '',
+        '--- Content Preview ---',
+        result.text.substring(0, 8000),
+        result.text.length > 8000 ? '\n\n... (truncated preview — full content will be analyzed)' : '',
+      ].filter(Boolean).join('\n');
+
+      $('#projectPreview').classList.remove('hidden');
+      $('#projectPreviewBody').textContent = preview;
+      showToast(`Project "${file.name}" extracted: ${result.stats.parsedFiles} files (${langList})`, 'success');
+    } catch (err) {
+      showToast(`Failed to parse project: ${err.message}`, 'error');
+    } finally {
+      // Restore upload zone
+      zone.innerHTML = `
+        <i class="fas fa-folder-open"></i>
+        <h3>Upload Project Source Code</h3>
+        <p>Drop a <strong>.zip file</strong> or click to browse</p>
+        <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
+        <input type="file" id="projectZipInput" accept=".zip" hidden>`;
+      // Re-bind the new input
+      const newInput = $('#projectZipInput');
+      newInput.addEventListener('change', () => {
+        if (newInput.files.length) handleProjectZip(newInput.files[0]);
+      });
+    }
+  }
+
   async function startGeneration() {
     // Determine content
     const activeTab = $('.tab-btn.active').dataset.tab;
@@ -352,6 +438,14 @@
       content = parsedContent || '';
       sourceType = 'file';
       sourceRef = $('#fileName').textContent;
+    } else if (activeTab === 'project-tab') {
+      content = parsedContent || '';
+      sourceType = 'project';
+      sourceRef = $('#projectName').textContent || 'project.zip';
+      if (!content) {
+        showToast('Please upload a project zip file first', 'warning');
+        return;
+      }
     } else {
       content = $('#textInput').value.trim();
       sourceType = 'text';

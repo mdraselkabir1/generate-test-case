@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -182,6 +183,9 @@
                   <button class="tab-btn" data-tab="file-tab">
                     <i class="fas fa-file-upload"></i> Document
                   </button>
+                  <button class="tab-btn" data-tab="project-tab">
+                    <i class="fas fa-folder-open"></i> Project
+                  </button>
                   <button class="tab-btn" data-tab="text-tab">
                     <i class="fas fa-keyboard"></i> Text
                   </button>
@@ -322,6 +326,35 @@
                       <button class="btn-icon" id="clearFilePreview"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="preview-body" id="filePreviewBody"></div>
+                  </div>
+                </div>
+
+                <!-- Project Tab (Folder / Zip Upload) -->
+                <div class="tab-content" id="project-tab">
+                  <div class="upload-zone" id="projectUploadZone">
+                    <i class="fas fa-folder-open"></i>
+                    <h3>Upload Project Source Code</h3>
+                    <p>Drop a <strong>.zip file</strong> or click to browse</p>
+                    <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
+                    <input type="file" id="projectZipInput" accept=".zip" hidden>
+                  </div>
+                  <div class="project-upload-options">
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeTests" class="form-checkbox">
+                      <i class="fas fa-vial"></i> Include existing test files in analysis
+                    </label>
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeDocs" class="form-checkbox" checked>
+                      <i class="fas fa-file-alt"></i> Include documentation files (README, docs/)
+                    </label>
+                  </div>
+                  <div id="projectPreview" class="content-preview hidden">
+                    <div class="preview-header">
+                      <span id="projectName">project.zip</span>
+                      <span id="projectStats" class="project-stats"></span>
+                      <button class="btn-icon" id="clearProjectPreview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="preview-body" id="projectPreviewBody"></div>
                   </div>
                 </div>
 

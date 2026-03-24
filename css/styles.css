@@ -656,6 +656,23 @@ textarea.form-input {
   color: var(--text-muted);
 }
 
+/* ===== Project Upload Options ===== */
+.project-upload-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm);
+}
+
+.project-stats {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
 /* ===== Content Preview ===== */
 .content-preview {
   margin-top: 16px;
