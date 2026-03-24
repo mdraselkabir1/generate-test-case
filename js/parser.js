@@ -120,8 +120,187 @@ const Parser = (() => {
     return matchCount >= 1 || isLowContent;
   }
 
+  // ---- Known SPA platform detectors ----
+
+  /**
+   * Detect if a URL points to a known SPA platform with REST API.
+   * Returns platform config if detected, null otherwise.
+   */
+  function detectKnownPlatform(url, html) {
+    const lower = (html || '').toLowerCase();
+    // Coverity Connect — Angular SPA with <cim-root> and COVJSESSIONID
+    if (lower.includes('<cim-root') || lower.includes('coverity') || /covjsessionid/i.test(html)) {
+      return { name: 'coverity', label: 'Coverity Connect' };
+    }
+    // SonarQube
+    if (lower.includes('sonarqube') || lower.includes('<div id="content">') && lower.includes('sonar')) {
+      return { name: 'sonarqube', label: 'SonarQube' };
+    }
+    // Jira
+    if (lower.includes('atlassian') || lower.includes('jira')) {
+      return { name: 'jira', label: 'Jira' };
+    }
+    return null;
+  }
+
+  /**
+   * Fetch data from Coverity Connect REST API v2 and format as readable text.
+   */
+  async function fetchCoverityApi(baseUrl, corsProxy, authConfig) {
+    const base = baseUrl.replace(/\/+$/, '');
+    const hashRoute = (new URL(baseUrl.replace(/#.*/, '') + '#')).hash || '';
+
+    // Build auth header for direct requests
+    const headers = { 'Accept': 'application/json' };
+    if (authConfig && authConfig.enabled && authConfig.type === 'basic') {
+      headers['Authorization'] = 'Basic ' + btoa(authConfig.username + ':' + authConfig.password);
+    } else if (authConfig && authConfig.enabled && authConfig.type === 'bearer') {
+      headers['Authorization'] = 'Bearer ' + authConfig.token;
+    }
+
+    // Helper to fetch a single API endpoint (tries direct, then each proxy)
+    async function apiGet(path) {
+      const fullUrl = base + path;
+      const attempts = [
+        { name: 'direct', url: fullUrl },
+      ];
+      if (corsProxy) {
+        attempts.push({ name: 'custom-proxy', url: corsProxy + encodeURIComponent(fullUrl) });
+      }
+      for (const proxy of CORS_PROXIES) {
+        attempts.push({ name: proxy.name, url: proxy.buildUrl(fullUrl) });
+      }
+      for (const attempt of attempts) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000);
+          const opts = { headers, signal: controller.signal };
+          if (attempt.name === 'direct') {
+            opts.credentials = 'include';
+          }
+          const res = await fetch(attempt.url, opts);
+          clearTimeout(timeout);
+          if (!res.ok) continue;
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('json')) {
+            return await res.json();
+          }
+          // If HTML returned, the endpoint doesn't exist
+          const text = await res.text();
+          if (text.startsWith('{') || text.startsWith('[')) {
+            try { return JSON.parse(text); } catch { /* not JSON */ }
+          }
+          return null; // HTML error page
+        } catch { /* next */ }
+      }
+      return null;
+    }
+
+    // Fetch all available Coverity endpoints in parallel
+    const [projects, streams, users, roles, groups, componentMaps] = await Promise.all([
+      apiGet('/api/v2/projects?rowCount=100'),
+      apiGet('/api/v2/streams?rowCount=100'),
+      apiGet('/api/v2/users?rowCount=100'),
+      apiGet('/api/v2/roles?rowCount=100'),
+      apiGet('/api/v2/groups?rowCount=100'),
+      apiGet('/api/v2/componentMaps?rowCount=100'),
+    ]);
+
+    // Build readable text output
+    const lines = [];
+    lines.push('# Coverity Connect — Extracted via REST API');
+    lines.push(`Source: ${baseUrl}`);
+    lines.push('');
+
+    if (projects && projects.projects) {
+      lines.push('## Projects');
+      for (const p of projects.projects) {
+        lines.push(`### ${p.name} (Key: ${p.projectKey})`);
+        if (p.description) lines.push(`Description: ${p.description}`);
+        lines.push(`Created by: ${p.createdBy} on ${p.dateCreated}`);
+        if (p.streams && p.streams.length) {
+          lines.push('Streams:');
+          for (const s of p.streams) {
+            lines.push(`  - ${s.name} (Language: ${s.language}, Component Map: ${s.componentMapName})`);
+            lines.push(`    Triage Store: ${s.triageStoreName}, Desktop Analysis: ${s.enableDesktopAnalysis}`);
+          }
+        }
+        if (p.roleAssignments && p.roleAssignments.length) {
+          lines.push('Role Assignments:');
+          for (const r of p.roleAssignments) {
+            const who = r.username || (r.group && r.group.name) || 'unknown';
+            lines.push(`  - ${who}: ${r.roleName} (${r.scope})`);
+          }
+        }
+        lines.push('');
+      }
+    }
+
+    if (streams && streams.streams) {
+      lines.push('## All Streams');
+      for (const s of streams.streams) {
+        lines.push(`- ${s.name} → Project: ${s.primaryProjectName}, Language: ${s.language}`);
+        lines.push(`  Component Map: ${s.componentMapName}, Triage Store: ${s.triageStoreName}`);
+        lines.push(`  Owner Assignment: ${s.ownerAssignmentOption}, Desktop Analysis: ${s.enableDesktopAnalysis}`);
+      }
+      lines.push('');
+    }
+
+    if (users && users.users) {
+      lines.push('## Users');
+      for (const u of users.users) {
+        const name = [u.givenName, u.familyName].filter(Boolean).join(' ');
+        lines.push(`- ${u.name} (${name}) — Groups: ${(u.groupNames || []).join(', ')}`);
+        lines.push(`  Super User: ${u.superUser}, Disabled: ${u.disabled}, Local: ${u.local}`);
+        if (u.lastLogin) lines.push(`  Last Login: ${u.lastLogin}`);
+        if (u.roleAssignments && u.roleAssignments.length) {
+          for (const r of u.roleAssignments) {
+            lines.push(`  Role: ${r.roleName} (${r.scope})`);
+          }
+        }
+      }
+      lines.push('');
+    }
+
+    if (roles && roles.roles) {
+      lines.push('## Roles & Permissions');
+      for (const r of roles.roles) {
+        lines.push(`### ${r.displayName}`);
+        lines.push(`Description: ${r.displayDescription}`);
+        lines.push(`Permissions:`);
+        for (const p of (r.displayPermissions || [])) {
+          lines.push(`  - ${p.displayName}`);
+        }
+        lines.push('');
+      }
+    }
+
+    if (groups && groups.groups) {
+      lines.push('## Groups');
+      for (const g of groups.groups) {
+        lines.push(`- ${g.name}${g.domainName ? ' (Domain: ' + g.domainName + ')' : ''}`);
+      }
+      lines.push('');
+    }
+
+    if (componentMaps && componentMaps.componentMaps) {
+      lines.push('## Component Maps');
+      for (const c of componentMaps.componentMaps) {
+        lines.push(`- ${c.name}${c.description ? ': ' + c.description : ''}`);
+      }
+      lines.push('');
+    }
+
+    const result = lines.join('\n').trim();
+    if (result.split('\n').length < 5) {
+      throw new Error('Coverity API returned very little data. The credentials may be wrong or the instance is empty.');
+    }
+    return result;
+  }
+
   /**
    * Fetch content from a URL (through CORS proxy), with optional auth.
+   * Detects known SPA platforms (Coverity, etc.) and uses their REST API.
    * Tries multiple proxies on failure. When auth is enabled, direct fetch is
    * tried first because CORS proxies typically do not forward auth headers.
    */
@@ -170,7 +349,6 @@ const Parser = (() => {
           parsed.username = authConfig.username;
           parsed.password = authConfig.password;
           const authUrl = parsed.toString();
-          // Try through proxies with credentials embedded in the URL
           if (corsProxy) {
             strategies.push({ name: 'custom-proxy+url-auth', url: corsProxy + encodeURIComponent(authUrl) });
           }
@@ -231,13 +409,25 @@ const Parser = (() => {
           continue;
         }
 
-        // Detect SPA shell
+        // Detect known SPA platform and switch to API-based fetching
+        const platform = detectKnownPlatform(url, html);
+        if (platform) {
+          try {
+            if (platform.name === 'coverity') {
+              return await fetchCoverityApi(fetchTarget, corsProxy, authConfig);
+            }
+          } catch (apiErr) {
+            lastError = apiErr;
+            // Fall through to generic SPA handling
+          }
+        }
+
+        // Detect generic SPA shell
         if (isSpaShell(html)) {
           spaWarning = `Note: This appears to be a Single Page Application (SPA). ` +
             `The fetched content is the app shell, not the rendered "${url.split('#')[1] || ''}" page. ` +
             `For best results, open the page in your browser, select all visible content (Ctrl+A / Cmd+A), ` +
             `copy it, and paste it into the Text Input tab.\n\n---\n\n`;
-          // Still extract what we can from the shell
         }
 
         const extracted = extractTextFromHtml(html);
@@ -250,7 +440,7 @@ const Parser = (() => {
     // Build actionable error message
     let errorMsg = `Failed to fetch URL after trying ${strategies.length} methods.`;
     if (isSpa) {
-      errorMsg += `\n\nThis URL uses client-side routing (#/reports/). The page content is rendered by JavaScript in the browser and cannot be fetched server-side.`;
+      errorMsg += `\n\nThis URL uses client-side routing (${url.split('#')[1] || '#'}). The page content is rendered by JavaScript in the browser and cannot be fetched server-side.`;
     }
     if (hasAuth) {
       errorMsg += `\n\nThe site requires authentication, which CORS proxies cannot forward.`;
