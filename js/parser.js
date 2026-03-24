@@ -1220,8 +1220,8 @@ const Parser = (() => {
     });
 
     // Limit to prevent browser memory issues
-    const MAX_FILES = 2000;
-    const MAX_FILE_SIZE = 500 * 1024; // 500KB per file
+    const MAX_FILES = 200000;
+    const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB per file
     const limited = fileEntries.slice(0, MAX_FILES);
 
     // Build combined text
