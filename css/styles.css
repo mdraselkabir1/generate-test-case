@@ -1023,6 +1023,11 @@ textarea.form-input {
 .badge-performance { background: #ffedd5; color: #ea580c; }
 .badge-accessibility { background: #e0e7ff; color: #4f46e5; }
 .badge-edge-cases { background: #fef3c7; color: #d97706; }
+.badge-integration { background: #fae8ff; color: #a21caf; }
+.badge-data-integrity { background: #dcfce7; color: #16a34a; }
+.badge-regression { background: #fff1f2; color: #e11d48; }
+.badge-compatibility { background: #f0f9ff; color: #0284c7; }
+.badge-error-recovery { background: #fef9c3; color: #ca8a04; }
 
 [data-theme="dark"] .badge-functional { background: #2e1065; color: #a78bfa; }
 [data-theme="dark"] .badge-ui { background: #164e63; color: #67e8f9; }
@@ -1031,6 +1036,11 @@ textarea.form-input {
 [data-theme="dark"] .badge-performance { background: #7c2d12; color: #fdba74; }
 [data-theme="dark"] .badge-accessibility { background: #312e81; color: #a5b4fc; }
 [data-theme="dark"] .badge-edge-cases { background: #78350f; color: #fcd34d; }
+[data-theme="dark"] .badge-integration { background: #581c87; color: #e879f9; }
+[data-theme="dark"] .badge-data-integrity { background: #14532d; color: #86efac; }
+[data-theme="dark"] .badge-regression { background: #881337; color: #fda4af; }
+[data-theme="dark"] .badge-compatibility { background: #0c4a6e; color: #7dd3fc; }
+[data-theme="dark"] .badge-error-recovery { background: #713f12; color: #fde047; }
 
 .case-body {
   display: none;

@@ -245,6 +245,8 @@ const Parser = (() => {
 
   /**
    * Analyze text and extract structured features/requirements.
+   * Enhanced deep-analysis engine: extracts API endpoints, form fields,
+   * business rules, data models, workflows, roles, error patterns, and more.
    */
   function analyzeContent(text) {
     const sections = [];
@@ -253,13 +255,34 @@ const Parser = (() => {
     const userStories = [];
     const entities = new Set();
     const actions = new Set();
+    const apiEndpoints = [];
+    const formFields = [];
+    const businessRules = [];
+    const workflows = [];
+    const roles = new Set();
+    const errorPatterns = [];
+    const dataModels = [];
+    const integrationPoints = [];
+    const stateTransitions = [];
+    const boundaryValues = [];
+    const securityConcerns = [];
 
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
     let currentSection = '';
+    let currentWorkflow = [];
+    let workflowActive = false;
+
     for (const line of lines) {
       // Detect headings / sections
       if (/^#{1,6}\s/.test(line) || /^[A-Z][A-Za-z\s]{2,50}:?\s*$/.test(line)) {
+        // close any active workflow
+        if (workflowActive && currentWorkflow.length > 1) {
+          workflows.push({ name: currentSection, steps: [...currentWorkflow] });
+        }
+        currentWorkflow = [];
+        workflowActive = false;
+
         currentSection = line.replace(/^#+\s*/, '').replace(/:$/, '').trim();
         sections.push(currentSection);
       }
@@ -284,9 +307,105 @@ const Parser = (() => {
       if (entityMatches) entityMatches.forEach(e => entities.add(e));
 
       // Extract action verbs
-      const actionPatterns = /\b(create|read|update|delete|submit|login|logout|register|search|filter|sort|upload|download|export|import|approve|reject|cancel|send|receive|validate|verify|display|show|hide|enable|disable|add|remove|edit|view|list|save|load|navigate|redirect|authenticate|authorize|configure|manage|process|calculate|generate|reset|change|select|deselect|check|uncheck|toggle|expand|collapse|open|close|drag|drop|scroll|zoom|print|share|notify|subscribe|unsubscribe)\b/gi;
+      const actionPatterns = /\b(create|read|update|delete|submit|login|logout|register|search|filter|sort|upload|download|export|import|approve|reject|cancel|send|receive|validate|verify|display|show|hide|enable|disable|add|remove|edit|view|list|save|load|navigate|redirect|authenticate|authorize|configure|manage|process|calculate|generate|reset|change|select|deselect|check|uncheck|toggle|expand|collapse|open|close|drag|drop|scroll|zoom|print|share|notify|subscribe|unsubscribe|pay|checkout|refund|ship|deliver|assign|escalate|archive|restore|merge|split|sync|retry|refresh|monitor|alert|audit|log|encrypt|decrypt|hash|sign|revoke|grant|deny|block|unblock|suspend|activate|deactivate|publish|unpublish|schedule|postpone|batch|queue|stream|cache|invalidate|migrate|rollback|deploy|provision)\b/gi;
       const actionMatches = line.match(actionPatterns);
       if (actionMatches) actionMatches.forEach(a => actions.add(a.toLowerCase()));
+
+      // --- Deep analysis: API endpoints ---
+      const endpointMatch = line.match(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/?([a-zA-Z0-9_\-\/{}:]+)/i);
+      if (endpointMatch) {
+        apiEndpoints.push({ method: endpointMatch[1].toUpperCase(), path: '/' + endpointMatch[2].replace(/^\//, '') });
+      }
+      const urlPatternMatch = line.match(/\/api\/[a-zA-Z0-9_\-\/{}:]+/g);
+      if (urlPatternMatch) {
+        urlPatternMatch.forEach(u => {
+          if (!apiEndpoints.some(e => e.path === u)) {
+            apiEndpoints.push({ method: 'GET', path: u });
+          }
+        });
+      }
+
+      // --- Deep analysis: form fields & input types ---
+      const fieldMatch = line.match(/\b(field|input|textbox|textarea|checkbox|radio|dropdown|select|picker|date\s*picker|file\s*upload|password\s*field|email\s*field|phone\s*field|search\s*bar|slider|toggle|switch)[:\s]+["']?([^"'\n,;]{2,60})/i);
+      if (fieldMatch) {
+        formFields.push({ type: fieldMatch[1].toLowerCase().trim(), name: fieldMatch[2].trim() });
+      }
+      // Detect field-like patterns: "Name:", "Email:", etc. followed by input descriptions
+      const labelMatch = line.match(/^[-•*]?\s*([\w\s]{2,30}):\s*(required|optional|mandatory|text|number|email|phone|date|url|password)/i);
+      if (labelMatch) {
+        formFields.push({ type: labelMatch[2].toLowerCase().trim(), name: labelMatch[1].trim() });
+      }
+
+      // --- Deep analysis: business rules ---
+      if (/\b(if|when|whenever|unless|only if|provided that|on condition)\b.+\b(then|shall|must|should|will)\b/i.test(line)) {
+        businessRules.push(line);
+      }
+      if (/\b(rule|constraint|validation|condition|limit|threshold|maximum|minimum|at least|at most|no more than|no less than|between)\b/i.test(line)) {
+        businessRules.push(line);
+      }
+
+      // --- Deep analysis: workflows (sequential steps) ---
+      if (/^(\d+[\.\)]\s|step\s*\d+|[-•*]\s)/i.test(line)) {
+        workflowActive = true;
+        currentWorkflow.push(line.replace(/^(\d+[\.\)]\s|step\s*\d+[:\.\)]\s*|[-•*]\s)/i, '').trim());
+      } else if (workflowActive && line.length > 10) {
+        // End workflow on non-step line
+        if (currentWorkflow.length > 1) {
+          workflows.push({ name: currentSection || 'Workflow', steps: [...currentWorkflow] });
+        }
+        currentWorkflow = [];
+        workflowActive = false;
+      }
+
+      // --- Deep analysis: user roles ---
+      const roleMatch = line.match(/\b(admin|administrator|user|manager|editor|viewer|moderator|operator|customer|guest|owner|member|subscriber|superadmin|super\s*user|support|agent|analyst|developer|tester|reviewer|approver)\b/gi);
+      if (roleMatch) roleMatch.forEach(r => roles.add(r.toLowerCase()));
+      // "As a <role>" pattern
+      const asARole = line.match(/as an?\s+([a-z\s]{2,30}?)[\s,]/i);
+      if (asARole) roles.add(asARole[1].trim().toLowerCase());
+
+      // --- Deep analysis: error patterns ---
+      if (/\b(error|exception|failure|fail|invalid|denied|forbidden|unauthorized|timeout|unavailable|conflict|not found|exceeded|overflow|corrupt|violation|rejected|blocked)\b/i.test(line)) {
+        errorPatterns.push(line);
+      }
+
+      // --- Deep analysis: data models (field lists, schema-like) ---
+      const dataFieldMatch = line.match(/\b(string|integer|int|float|double|boolean|bool|date|datetime|timestamp|uuid|id|text|varchar|char|decimal|bigint|array|object|enum|json|blob)\b/i);
+      if (dataFieldMatch) {
+        dataModels.push(line);
+      }
+
+      // --- Deep analysis: integrations ---
+      if (/\b(integrate|integration|third.?party|external|webhook|callback|api\s*call|microservice|service|message\s*queue|kafka|rabbitmq|redis|elasticsearch|s3|stripe|paypal|twilio|sendgrid|firebase|aws|azure|gcp|oauth|sso|saml|ldap|smtp|ftp|sftp|grpc|graphql|websocket|mqtt|rest\s*api)\b/i.test(line)) {
+        integrationPoints.push(line);
+      }
+
+      // --- Deep analysis: state transitions ---
+      const stateMatch = line.match(/\b(status|state)\b.+\b(from|changes?\s+to|transitions?\s+to|moves?\s+to|becomes?)\b.+/i);
+      if (stateMatch) {
+        stateTransitions.push(line);
+      }
+      // "pending -> approved -> completed" style
+      const arrowStates = line.match(/(\w+)\s*(?:->|→|=>|-->)\s*(\w+)/g);
+      if (arrowStates) {
+        arrowStates.forEach(s => stateTransitions.push(s));
+      }
+
+      // --- Deep analysis: boundary values ---
+      const boundaryMatch = line.match(/\b(max(?:imum)?|min(?:imum)?|limit|range|between|at\s+least|at\s+most|up\s+to|no\s+more\s+than|exceeds?|greater\s+than|less\s+than)\b[:\s]*(\d[\d,.\s]*)/i);
+      if (boundaryMatch) {
+        boundaryValues.push({ description: line, value: boundaryMatch[2].trim(), type: boundaryMatch[1].toLowerCase() });
+      }
+
+      // --- Deep analysis: security concerns ---
+      if (/\b(authentication|authorization|permission|role.based|access\s*control|encrypt|decrypt|hash|token|session|cookie|csrf|xss|injection|sanitize|validate|password|credential|secret|api.key|certificate|ssl|tls|https|oauth|jwt|cors|firewall|rate.limit|brute.force|captcha|2fa|mfa|two.factor|multi.factor|audit.log|compliance|gdpr|hipaa|pci|sox)\b/i.test(line)) {
+        securityConcerns.push(line);
+      }
+    }
+
+    // Flush remaining workflow
+    if (currentWorkflow.length > 1) {
+      workflows.push({ name: currentSection || 'Workflow', steps: [...currentWorkflow] });
     }
 
     // Compute keywords
@@ -299,8 +418,11 @@ const Parser = (() => {
     });
     const keywords = Object.entries(wordFreq)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 30)
+      .slice(0, 50)
       .map(([word]) => word);
+
+    // Deduplicate arrays
+    const uniqueFilter = (arr, maxLen) => [...new Set(arr)].slice(0, maxLen);
 
     return {
       sections,
@@ -310,6 +432,17 @@ const Parser = (() => {
       entities: [...entities].slice(0, 30),
       actions: [...actions],
       keywords,
+      apiEndpoints: apiEndpoints.slice(0, 50),
+      formFields: formFields.slice(0, 50),
+      businessRules: uniqueFilter(businessRules, 40),
+      workflows: workflows.slice(0, 20),
+      roles: [...roles],
+      errorPatterns: uniqueFilter(errorPatterns, 30),
+      dataModels: uniqueFilter(dataModels, 30),
+      integrationPoints: uniqueFilter(integrationPoints, 20),
+      stateTransitions: uniqueFilter(stateTransitions, 20),
+      boundaryValues: boundaryValues.slice(0, 20),
+      securityConcerns: uniqueFilter(securityConcerns, 30),
       totalLines: lines.length,
       rawText: text,
     };
