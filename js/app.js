@@ -1,0 +1,823 @@
+/**
+ * App Controller — wires up UI, navigation, events, and renders all pages.
+ */
+(function () {
+  'use strict';
+
+  // ---------- State ----------
+  let currentPage = 'dashboard';
+  let parsedContent = '';
+  let currentPlanForModal = null;
+
+  // ---------- DOM Refs ----------
+  const $ = (sel, ctx = document) => ctx.querySelector(sel);
+  const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+  // ---------- Init ----------
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
+    loadTheme();
+    loadSettings();
+    bindNavigation();
+    bindGenerator();
+    bindSettings();
+    bindModal();
+    bindMisc();
+    updateDashboard();
+
+    // Go to generator if URL has #generate
+    if (location.hash === '#generate') navigateTo('generator');
+  }
+
+  // ============================================================
+  // Theme
+  // ============================================================
+  function loadTheme() {
+    const settings = Storage.getSettings();
+    if (settings.theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      $('#themeToggle i').className = 'fas fa-sun';
+    }
+    $('#themeToggle').addEventListener('click', toggleTheme);
+  }
+
+  function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    $('#themeToggle i').className = isDark ? 'fas fa-moon' : 'fas fa-sun';
+    const settings = Storage.getSettings();
+    settings.theme = isDark ? 'light' : 'dark';
+    Storage.saveSettings(settings);
+  }
+
+  // ============================================================
+  // Navigation
+  // ============================================================
+  function bindNavigation() {
+    document.addEventListener('click', e => {
+      const navItem = e.target.closest('.nav-item[data-page]');
+      if (navItem) {
+        e.preventDefault();
+        navigateTo(navItem.dataset.page);
+      }
+    });
+
+    // Mobile menu
+    $('#mobileMenuBtn').addEventListener('click', () => {
+      $('#sidebar').classList.toggle('mobile-open');
+    });
+
+    // Sidebar toggle
+    $('#sidebarToggle').addEventListener('click', () => {
+      $('#sidebar').classList.toggle('collapsed');
+    });
+
+    // Quick generate
+    $('#quickGenerate').addEventListener('click', () => navigateTo('generator'));
+  }
+
+  function navigateTo(page) {
+    currentPage = page;
+
+    // Update nav active state
+    $$('.sidebar-nav .nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.page === page);
+    });
+
+    // Show page
+    $$('.page').forEach(p => p.classList.remove('active'));
+    const pageEl = $(`#page-${page}`);
+    if (pageEl) pageEl.classList.add('active');
+
+    // Update title
+    const titles = {
+      dashboard: 'Dashboard',
+      generator: 'Generate Test Cases',
+      'test-plans': 'Test Plans',
+      'test-cases': 'Test Cases',
+      history: 'History',
+      settings: 'Settings',
+    };
+    $('#pageTitle').textContent = titles[page] || page;
+
+    // Close mobile sidebar
+    $('#sidebar').classList.remove('mobile-open');
+
+    // Refresh page data
+    if (page === 'dashboard') updateDashboard();
+    if (page === 'test-plans') renderTestPlans();
+    if (page === 'test-cases') renderTestCases();
+    if (page === 'history') renderHistory();
+  }
+
+  // ============================================================
+  // Dashboard
+  // ============================================================
+  function updateDashboard() {
+    const stats = Storage.updateStats();
+    $('#totalPlans').textContent = stats.totalPlans;
+    $('#totalCases').textContent = stats.totalCases;
+    $('#totalDocs').textContent = stats.totalDocs;
+    $('#totalUrls').textContent = stats.totalUrls;
+    $('#storageCount').textContent = `${stats.totalPlans} plan${stats.totalPlans !== 1 ? 's' : ''} stored`;
+
+    renderRecentPlans();
+    renderDashboardHistory();
+  }
+
+  function renderRecentPlans() {
+    const plans = Storage.getPlans().slice(0, 5);
+    const container = $('#recentPlans');
+    if (plans.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state small">
+          <i class="fas fa-clipboard-list"></i>
+          <p>No test plans yet. Generate your first one!</p>
+          <button class="btn btn-primary nav-item" data-page="generator">Get Started</button>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = plans.map(plan => `
+      <div class="plan-card" data-plan-id="${plan.id}">
+        <div class="plan-info">
+          <h3>${escapeHtml(plan.name)}</h3>
+          <div class="plan-meta">
+            <span><i class="fas fa-vial"></i> ${plan.testCases.length} cases</span>
+            <span><i class="fas fa-clock"></i> ${timeAgo(plan.createdAt)}</span>
+            <span><i class="fas fa-tag"></i> ${plan.testType}</span>
+          </div>
+        </div>
+        <div class="plan-actions">
+          <button class="btn btn-sm btn-secondary view-plan-btn" data-plan-id="${plan.id}" title="View">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.view-plan-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        showPlanDetail(btn.dataset.planId);
+      });
+    });
+
+    container.querySelectorAll('.plan-card').forEach(card => {
+      card.addEventListener('click', () => showPlanDetail(card.dataset.planId));
+    });
+  }
+
+  function renderDashboardHistory() {
+    const history = Storage.getHistory().slice(0, 5);
+    const container = $('#historyTimeline');
+    if (history.length === 0) {
+      container.innerHTML = `<div class="empty-state small"><i class="fas fa-history"></i><p>No history yet</p></div>`;
+      return;
+    }
+    container.innerHTML = history.map(h => renderHistoryItem(h)).join('');
+  }
+
+  // ============================================================
+  // Generator
+  // ============================================================
+  function bindGenerator() {
+    // Tab switching
+    $$('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $$('.tab-btn').forEach(b => b.classList.remove('active'));
+        $$('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        $(`#${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // URL fetch
+    $('#fetchUrlBtn').addEventListener('click', fetchUrlContent);
+
+    // File upload
+    const uploadZone = $('#uploadZone');
+    const fileInput = $('#fileInput');
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    // Clear previews
+    $('#clearUrlPreview').addEventListener('click', () => {
+      $('#urlPreview').classList.add('hidden');
+      $('#urlPreviewBody').textContent = '';
+      parsedContent = '';
+    });
+    $('#clearFilePreview').addEventListener('click', () => {
+      $('#filePreview').classList.add('hidden');
+      $('#filePreviewBody').textContent = '';
+      parsedContent = '';
+      $('#fileInput').value = '';
+    });
+
+    // Generate button
+    $('#generateBtn').addEventListener('click', startGeneration);
+  }
+
+  async function fetchUrlContent() {
+    const url = $('#urlInput').value.trim();
+    if (!url) { showToast('Please enter a URL', 'warning'); return; }
+
+    try {
+      // Validate URL format
+      new URL(url);
+    } catch {
+      showToast('Please enter a valid URL', 'error');
+      return;
+    }
+
+    const btn = $('#fetchUrlBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+
+    try {
+      const settings = Storage.getSettings();
+      const text = await Parser.fetchUrl(url, settings.corsProxy);
+      parsedContent = text;
+      $('#urlPreview').classList.remove('hidden');
+      $('#urlPreviewBody').textContent = text.substring(0, 5000) + (text.length > 5000 ? '\n\n... (truncated)' : '');
+      showToast('URL content fetched successfully', 'success');
+    } catch (err) {
+      showToast(`Failed to fetch URL: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-download"></i> Fetch';
+    }
+  }
+
+  async function handleFile(file) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      showToast('File too large (max 10MB)', 'error');
+      return;
+    }
+
+    try {
+      const text = await Parser.parseFile(file);
+      parsedContent = text;
+      $('#fileName').textContent = file.name;
+      $('#filePreview').classList.remove('hidden');
+      $('#filePreviewBody').textContent = text.substring(0, 5000) + (text.length > 5000 ? '\n\n... (truncated)' : '');
+      showToast(`File "${file.name}" parsed successfully`, 'success');
+    } catch (err) {
+      showToast(`Failed to parse file: ${err.message}`, 'error');
+    }
+  }
+
+  async function startGeneration() {
+    // Determine content
+    const activeTab = $('.tab-btn.active').dataset.tab;
+    let content = '';
+    let sourceType = 'text';
+    let sourceRef = '';
+
+    if (activeTab === 'url-tab') {
+      content = parsedContent || '';
+      sourceType = 'url';
+      sourceRef = $('#urlInput').value.trim();
+      if (!content && sourceRef) {
+        showToast('Please fetch the URL first', 'warning');
+        return;
+      }
+    } else if (activeTab === 'file-tab') {
+      content = parsedContent || '';
+      sourceType = 'file';
+      sourceRef = $('#fileName').textContent;
+    } else {
+      content = $('#textInput').value.trim();
+      sourceType = 'text';
+    }
+
+    if (!content) {
+      showToast('Please provide content to generate test cases from', 'warning');
+      return;
+    }
+
+    const options = {
+      planName: $('#planName').value.trim(),
+      testType: $('#testType').value,
+      priority: $('#priority').value,
+      depth: $('#depth').value,
+      sourceType,
+      sourceRef,
+    };
+
+    // Show progress
+    const progressCard = $('#progressCard');
+    progressCard.classList.remove('hidden');
+    $('#generateBtn').disabled = true;
+
+    try {
+      await animateProgress('step-parse', 0, 'Parsing content...');
+      const analysis = Parser.analyzeContent(content);
+
+      await animateProgress('step-analyze', 30, `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`);
+
+      await animateProgress('step-generate', 60, 'Generating test cases...');
+      const plan = Generator.generateTestPlan(analysis, options);
+
+      await animateProgress('step-review', 90, `Generated ${plan.testCases.length} test cases!`);
+
+      // Save
+      Storage.savePlan(plan);
+      Storage.addHistory({
+        sourceType,
+        sourceRef,
+        planId: plan.id,
+        planName: plan.name,
+        casesCount: plan.testCases.length,
+      });
+
+      // Complete
+      await animateProgress(null, 100, 'Done! ');
+
+      setTimeout(() => {
+        progressCard.classList.add('hidden');
+        resetProgress();
+        showToast(`Test plan "${plan.name}" generated with ${plan.testCases.length} test cases!`, 'success');
+
+        // Auto-export if enabled
+        const settings = Storage.getSettings();
+        if (settings.autoExport) {
+          const result = Exporter.exportPlan(plan, settings.exportFormat);
+          Exporter.download(result);
+        }
+
+        // Navigate to plan detail
+        showPlanDetail(plan.id);
+      }, 800);
+
+    } catch (err) {
+      showToast(`Generation failed: ${err.message}`, 'error');
+      progressCard.classList.add('hidden');
+      resetProgress();
+    } finally {
+      $('#generateBtn').disabled = false;
+    }
+  }
+
+  function animateProgress(stepId, percent, text) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        // Update step
+        ['step-parse', 'step-analyze', 'step-generate', 'step-review'].forEach(id => {
+          const el = $(`#${id}`);
+          if (id === stepId) {
+            el.classList.add('active');
+            el.classList.remove('completed');
+          } else if (stepId && getStepOrder(id) < getStepOrder(stepId)) {
+            el.classList.remove('active');
+            el.classList.add('completed');
+          }
+        });
+        $('#progressFill').style.width = percent + '%';
+        $('#progressText').textContent = text;
+        resolve();
+      }, 500);
+    });
+  }
+
+  function getStepOrder(id) {
+    const order = { 'step-parse': 0, 'step-analyze': 1, 'step-generate': 2, 'step-review': 3 };
+    return order[id] ?? -1;
+  }
+
+  function resetProgress() {
+    ['step-parse', 'step-analyze', 'step-generate', 'step-review'].forEach(id => {
+      $(`#${id}`).classList.remove('active', 'completed');
+    });
+    $(`#step-parse`).classList.add('active');
+    $('#progressFill').style.width = '0%';
+    $('#progressText').textContent = 'Starting...';
+  }
+
+  // ============================================================
+  // Test Plans Page
+  // ============================================================
+  function renderTestPlans(filter = '') {
+    let plans = Storage.getPlans();
+    if (filter) {
+      const f = filter.toLowerCase();
+      plans = plans.filter(p => p.name.toLowerCase().includes(f));
+    }
+
+    const container = $('#testPlansList');
+    if (plans.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <i class="fas fa-clipboard-list"></i>
+          <p>${filter ? 'No matching test plans found' : 'No test plans created yet'}</p>
+          <button class="btn btn-primary nav-item" data-page="generator">Create First Plan</button>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = plans.map(plan => `
+      <div class="plan-card" data-plan-id="${plan.id}">
+        <div class="plan-info">
+          <h3>${escapeHtml(plan.name)}</h3>
+          <div class="plan-meta">
+            <span><i class="fas fa-vial"></i> ${plan.testCases.length} cases</span>
+            <span><i class="fas fa-clock"></i> ${timeAgo(plan.createdAt)}</span>
+            <span><i class="fas fa-tag"></i> ${plan.testType}</span>
+            <span><i class="fas fa-layer-group"></i> ${plan.depth}</span>
+            <span><i class="fas fa-${plan.source === 'url' ? 'link' : plan.source === 'file' ? 'file-alt' : 'keyboard'}"></i> ${plan.source}</span>
+          </div>
+        </div>
+        <div class="plan-actions">
+          <button class="btn btn-sm btn-secondary view-plan-btn" data-plan-id="${plan.id}" title="View">
+            <i class="fas fa-eye"></i>
+          </button>
+          <button class="btn btn-sm btn-secondary export-plan-btn" data-plan-id="${plan.id}" title="Export">
+            <i class="fas fa-download"></i>
+          </button>
+          <button class="btn btn-sm btn-danger delete-plan-btn" data-plan-id="${plan.id}" title="Delete">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    // Event listeners
+    container.querySelectorAll('.view-plan-btn').forEach(btn => {
+      btn.addEventListener('click', e => { e.stopPropagation(); showPlanDetail(btn.dataset.planId); });
+    });
+    container.querySelectorAll('.export-plan-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const plan = Storage.getPlanById(btn.dataset.planId);
+        if (plan) {
+          const settings = Storage.getSettings();
+          Exporter.download(Exporter.exportPlan(plan, settings.exportFormat));
+          showToast('Plan exported!', 'success');
+        }
+      });
+    });
+    container.querySelectorAll('.delete-plan-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (confirm('Are you sure you want to delete this test plan?')) {
+          Storage.deletePlan(btn.dataset.planId);
+          renderTestPlans();
+          updateDashboard();
+          showToast('Plan deleted', 'info');
+        }
+      });
+    });
+    container.querySelectorAll('.plan-card').forEach(card => {
+      card.addEventListener('click', () => showPlanDetail(card.dataset.planId));
+    });
+
+    // Bind search
+    const searchInput = $('#searchPlans');
+    searchInput.removeEventListener('input', searchInput._handler);
+    searchInput._handler = () => renderTestPlans(searchInput.value.trim());
+    searchInput.addEventListener('input', searchInput._handler);
+  }
+
+  // ============================================================
+  // Test Cases Page
+  // ============================================================
+  function renderTestCases() {
+    const allCases = Storage.getAllCases();
+    const search = ($('#searchCases')?.value || '').toLowerCase();
+    const filterPlan = $('#filterPlan').value;
+    const filterType = $('#filterType').value;
+    const filterPriority = $('#filterPriority').value;
+
+    // Populate plan filter
+    const plans = Storage.getPlans();
+    const planSelect = $('#filterPlan');
+    const currentVal = planSelect.value;
+    planSelect.innerHTML = '<option value="">All Plans</option>' +
+      plans.map(p => `<option value="${p.id}" ${p.id === currentVal ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+
+    // Filter
+    let filtered = allCases;
+    if (search) filtered = filtered.filter(tc =>
+      tc.title.toLowerCase().includes(search) || tc.id.toLowerCase().includes(search)
+    );
+    if (filterPlan) filtered = filtered.filter(tc => tc.planId === filterPlan);
+    if (filterType) filtered = filtered.filter(tc => tc.type === filterType);
+    if (filterPriority) filtered = filtered.filter(tc => tc.priority === filterPriority);
+
+    const container = $('#testCasesList');
+    if (filtered.length === 0) {
+      container.innerHTML = `<div class="empty-state"><i class="fas fa-vial"></i><p>No test cases found</p></div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map(tc => `
+      <div class="case-card" data-case-id="${tc.id}">
+        <div class="case-header">
+          <div class="case-header-left">
+            <span class="case-id">${tc.id}</span>
+            <span class="case-title">${escapeHtml(tc.title)}</span>
+          </div>
+          <div class="case-badges">
+            <span class="badge badge-${tc.type}">${tc.type}</span>
+            <span class="badge badge-${tc.priority}">${tc.priority}</span>
+            <i class="fas fa-chevron-down case-expand-icon"></i>
+          </div>
+        </div>
+        <div class="case-body">
+          <div class="case-section">
+            <h4>Plan</h4>
+            <p style="font-size:0.85rem;color:var(--text-secondary)">${escapeHtml(tc.planName)}</p>
+          </div>
+          <div class="case-section">
+            <h4>Preconditions</h4>
+            <p style="font-size:0.85rem;color:var(--text-secondary)">${escapeHtml(tc.preconditions)}</p>
+          </div>
+          <div class="case-section">
+            <h4>Steps</h4>
+            <ol class="case-steps">${tc.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>
+          </div>
+          <div class="case-section">
+            <h4>Expected Result</h4>
+            <div class="expected-result">${escapeHtml(tc.expectedResult)}</div>
+          </div>
+          ${tc.notes ? `<div class="case-section"><h4>Notes</h4><p style="font-size:0.85rem;color:var(--text-secondary)">${escapeHtml(tc.notes)}</p></div>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    // Expand/collapse
+    container.querySelectorAll('.case-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.closest('.case-card').classList.toggle('expanded');
+      });
+    });
+
+    // Bind filters
+    ['searchCases', 'filterPlan', 'filterType', 'filterPriority'].forEach(id => {
+      const el = $(`#${id}`);
+      el.removeEventListener('input', el._tcHandler);
+      el.removeEventListener('change', el._tcHandler);
+      el._tcHandler = () => renderTestCases();
+      el.addEventListener(id === 'searchCases' ? 'input' : 'change', el._tcHandler);
+    });
+  }
+
+  // ============================================================
+  // History Page
+  // ============================================================
+  function renderHistory() {
+    const history = Storage.getHistory();
+    const container = $('#fullHistory');
+
+    if (history.length === 0) {
+      container.innerHTML = `<div class="empty-state"><i class="fas fa-history"></i><p>No generation history yet</p></div>`;
+      return;
+    }
+
+    container.innerHTML = history.map(h => renderHistoryItem(h)).join('');
+  }
+
+  function renderHistoryItem(h) {
+    const iconClass = h.sourceType === 'url' ? 'url' : h.sourceType === 'file' ? 'file' : 'text';
+    const iconName = h.sourceType === 'url' ? 'fa-link' : h.sourceType === 'file' ? 'fa-file-alt' : 'fa-keyboard';
+    return `
+      <div class="history-item">
+        <div class="history-icon ${iconClass}"><i class="fas ${iconName}"></i></div>
+        <div class="history-info">
+          <h4>${escapeHtml(h.planName || 'Test Plan')}</h4>
+          <p>${h.casesCount || 0} test cases generated from ${h.sourceType}${h.sourceRef ? ': ' + escapeHtml(h.sourceRef.substring(0, 60)) : ''}</p>
+          <span class="history-date">${h.timestamp ? new Date(h.timestamp).toLocaleString() : ''}</span>
+        </div>
+      </div>`;
+  }
+
+  // ============================================================
+  // Plan Detail Modal
+  // ============================================================
+  function bindModal() {
+    // Close buttons
+    $$('.modal-close').forEach(btn => {
+      btn.addEventListener('click', () => closeModal());
+    });
+    $('.modal-overlay').addEventListener('click', closeModal);
+
+    // Export from modal
+    $('#modalExportBtn').addEventListener('click', () => {
+      if (currentPlanForModal) {
+        const settings = Storage.getSettings();
+        Exporter.download(Exporter.exportPlan(currentPlanForModal, settings.exportFormat));
+        showToast('Plan exported!', 'success');
+      }
+    });
+
+    // Delete from modal
+    $('#modalDeleteBtn').addEventListener('click', () => {
+      if (currentPlanForModal && confirm('Delete this test plan?')) {
+        Storage.deletePlan(currentPlanForModal.id);
+        closeModal();
+        updateDashboard();
+        renderTestPlans();
+        showToast('Plan deleted', 'info');
+      }
+    });
+  }
+
+  function showPlanDetail(planId) {
+    const plan = Storage.getPlanById(planId);
+    if (!plan) return;
+
+    currentPlanForModal = plan;
+    $('#modalPlanName').textContent = plan.name;
+
+    const body = $('#modalPlanBody');
+    body.innerHTML = `
+      <div class="plan-summary-grid">
+        <div class="plan-summary-item"><label>Created</label><span>${new Date(plan.createdAt).toLocaleString()}</span></div>
+        <div class="plan-summary-item"><label>Source</label><span>${plan.source}${plan.sourceRef ? ': ' + escapeHtml(plan.sourceRef.substring(0, 50)) : ''}</span></div>
+        <div class="plan-summary-item"><label>Total Cases</label><span>${plan.testCases.length}</span></div>
+        <div class="plan-summary-item"><label>Depth</label><span>${plan.depth}</span></div>
+      </div>
+
+      <h3 class="mb-2" style="font-size:0.95rem;">Test Cases</h3>
+      <table class="plan-detail-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Type</th><th>Priority</th></tr>
+        </thead>
+        <tbody>
+          ${plan.testCases.map(tc => `
+            <tr>
+              <td>${tc.id}</td>
+              <td>${escapeHtml(tc.title)}</td>
+              <td><span class="badge badge-${tc.type}">${tc.type}</span></td>
+              <td><span class="badge badge-${tc.priority}">${tc.priority}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    $('#planDetailModal').classList.add('active');
+  }
+
+  function closeModal() {
+    $('#planDetailModal').classList.remove('active');
+    currentPlanForModal = null;
+  }
+
+  // ============================================================
+  // Settings
+  // ============================================================
+  function loadSettings() {
+    const settings = Storage.getSettings();
+    if ($('#defaultDepth')) $('#defaultDepth').value = settings.defaultDepth || 'standard';
+    if ($('#defaultType')) $('#defaultType').value = settings.defaultType || 'all';
+    if ($('#autoExport')) $('#autoExport').checked = settings.autoExport || false;
+    if ($('#exportFormat')) $('#exportFormat').value = settings.exportFormat || 'markdown';
+    if ($('#corsProxy')) $('#corsProxy').value = settings.corsProxy || 'https://api.allorigins.win/raw?url=';
+  }
+
+  function bindSettings() {
+    // Save settings on change
+    ['defaultDepth', 'defaultType', 'exportFormat', 'corsProxy'].forEach(id => {
+      $(`#${id}`).addEventListener('change', saveCurrentSettings);
+    });
+    $('#autoExport').addEventListener('change', saveCurrentSettings);
+
+    // Export data
+    $('#exportDataBtn').addEventListener('click', () => {
+      const data = Storage.exportAllData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'testforge-data-export.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Data exported!', 'success');
+    });
+
+    // Import data
+    $('#importDataBtn').addEventListener('click', () => $('#importFileInput').click());
+    $('#importFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data.plans && !data.history) throw new Error('Invalid data file');
+        Storage.importData(data);
+        loadSettings();
+        updateDashboard();
+        showToast('Data imported successfully!', 'success');
+      } catch (err) {
+        showToast(`Import failed: ${err.message}`, 'error');
+      }
+      e.target.value = '';
+    });
+
+    // Clear data
+    $('#clearDataBtn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to clear ALL data? This cannot be undone.')) {
+        Storage.clearAll();
+        updateDashboard();
+        showToast('All data cleared', 'info');
+      }
+    });
+  }
+
+  function saveCurrentSettings() {
+    const settings = Storage.getSettings();
+    settings.defaultDepth = $('#defaultDepth').value;
+    settings.defaultType = $('#defaultType').value;
+    settings.autoExport = $('#autoExport').checked;
+    settings.exportFormat = $('#exportFormat').value;
+    settings.corsProxy = $('#corsProxy').value;
+    Storage.saveSettings(settings);
+    showToast('Settings saved', 'success');
+  }
+
+  // ============================================================
+  // Misc Bindings
+  // ============================================================
+  function bindMisc() {
+    // Export all from dashboard
+    $('#exportAllBtn').addEventListener('click', () => {
+      const settings = Storage.getSettings();
+      const result = Exporter.exportAllPlans(settings.exportFormat);
+      if (result) {
+        Exporter.download(result);
+        showToast('All plans exported!', 'success');
+      } else {
+        showToast('No plans to export', 'warning');
+      }
+    });
+
+    // Clear all from dashboard
+    $('#clearAllBtn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to clear ALL data? This cannot be undone.')) {
+        Storage.clearAll();
+        updateDashboard();
+        showToast('All data cleared', 'info');
+      }
+    });
+
+    // Clear history
+    $('#clearHistoryBtn').addEventListener('click', () => {
+      if (confirm('Clear all generation history?')) {
+        Storage.clearHistory();
+        renderHistory();
+        showToast('History cleared', 'info');
+      }
+    });
+  }
+
+  // ============================================================
+  // Toast Notifications
+  // ============================================================
+  function showToast(message, type = 'info') {
+    const container = $('#toastContainer');
+    const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('removing');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  // ============================================================
+  // Utilities
+  // ============================================================
+  function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function timeAgo(dateStr) {
+    const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+    if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
+    return new Date(dateStr).toLocaleDateString();
+  }
+
+})();
