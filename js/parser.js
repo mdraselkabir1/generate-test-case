@@ -74,7 +74,17 @@ const Parser = (() => {
   }
 
   /**
+   * List of CORS proxy services to try in order.
+   */
+  const CORS_PROXIES = [
+    { name: 'allorigins', buildUrl: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+    { name: 'corsproxy.io', buildUrl: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+    { name: 'cors-anywhere-alt', buildUrl: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` },
+  ];
+
+  /**
    * Fetch content from a URL (through CORS proxy), with optional auth.
+   * Tries multiple proxies on failure.
    */
   async function fetchUrl(url, corsProxy, authConfig) {
     const headers = {};
@@ -95,7 +105,6 @@ const Parser = (() => {
           break;
         }
         case 'form': {
-          // For form-based login, first POST to the login URL, then fetch the target
           const loginResult = await formLogin(authConfig, corsProxy);
           if (loginResult.cookie) {
             headers['Cookie'] = loginResult.cookie;
@@ -105,11 +114,57 @@ const Parser = (() => {
       }
     }
 
-    const proxyUrl = corsProxy ? corsProxy + encodeURIComponent(url) : url;
-    const response = await fetch(proxyUrl, { headers });
-    if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
-    const html = await response.text();
-    return extractTextFromHtml(html);
+    // Build list of proxy URLs to try
+    const proxyUrls = [];
+
+    // If user provided a custom proxy, try that first
+    if (corsProxy) {
+      proxyUrls.push({ name: 'custom', url: corsProxy + encodeURIComponent(url) });
+    }
+
+    // Add built-in fallback proxies
+    for (const proxy of CORS_PROXIES) {
+      const pUrl = proxy.buildUrl(url);
+      // Avoid duplicating the custom proxy
+      if (!proxyUrls.some(p => p.url === pUrl)) {
+        proxyUrls.push({ name: proxy.name, url: pUrl });
+      }
+    }
+
+    // Also try direct fetch (works for CORS-friendly sites)
+    proxyUrls.push({ name: 'direct', url });
+
+    let lastError = null;
+    for (const proxy of proxyUrls) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        const response = await fetch(proxy.url, {
+          headers,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          lastError = new Error(`${proxy.name}: HTTP ${response.status}`);
+          continue;
+        }
+
+        const html = await response.text();
+        if (!html || html.trim().length < 50) {
+          lastError = new Error(`${proxy.name}: Empty or too short response`);
+          continue;
+        }
+
+        return extractTextFromHtml(html);
+      } catch (err) {
+        lastError = err;
+        // Continue to next proxy
+      }
+    }
+
+    throw new Error(`Failed to fetch URL after trying ${proxyUrls.length} methods. Last error: ${lastError?.message || 'Unknown error'}. Try downloading the page manually and uploading it as a file instead.`);
   }
 
   /**
