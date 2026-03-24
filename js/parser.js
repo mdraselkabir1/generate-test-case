@@ -74,14 +74,71 @@ const Parser = (() => {
   }
 
   /**
-   * Fetch content from a URL (through CORS proxy).
+   * Fetch content from a URL (through CORS proxy), with optional auth.
    */
-  async function fetchUrl(url, corsProxy) {
+  async function fetchUrl(url, corsProxy, authConfig) {
+    const headers = {};
+
+    if (authConfig && authConfig.enabled) {
+      switch (authConfig.type) {
+        case 'basic': {
+          const encoded = btoa(authConfig.username + ':' + authConfig.password);
+          headers['Authorization'] = 'Basic ' + encoded;
+          break;
+        }
+        case 'bearer': {
+          headers['Authorization'] = 'Bearer ' + authConfig.token;
+          break;
+        }
+        case 'cookie': {
+          headers['Cookie'] = authConfig.cookie;
+          break;
+        }
+        case 'form': {
+          // For form-based login, first POST to the login URL, then fetch the target
+          const loginResult = await formLogin(authConfig, corsProxy);
+          if (loginResult.cookie) {
+            headers['Cookie'] = loginResult.cookie;
+          }
+          break;
+        }
+      }
+    }
+
     const proxyUrl = corsProxy ? corsProxy + encodeURIComponent(url) : url;
-    const response = await fetch(proxyUrl);
-    if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status}`);
+    const response = await fetch(proxyUrl, { headers });
+    if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
     const html = await response.text();
     return extractTextFromHtml(html);
+  }
+
+  /**
+   * Perform form-based login and return session cookies.
+   */
+  async function formLogin(authConfig, corsProxy) {
+    const loginUrl = authConfig.loginUrl;
+    if (!loginUrl) throw new Error('Login URL is required for form-based authentication');
+
+    const formData = new URLSearchParams();
+    formData.append('username', authConfig.username);
+    formData.append('email', authConfig.username);
+    formData.append('password', authConfig.password);
+
+    const proxyLoginUrl = corsProxy ? corsProxy + encodeURIComponent(loginUrl) : loginUrl;
+
+    try {
+      const response = await fetch(proxyLoginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+        credentials: 'include',
+      });
+
+      const cookie = response.headers.get('set-cookie') || '';
+      return { cookie, ok: response.ok };
+    } catch (err) {
+      throw new Error(`Form login failed: ${err.message}. Try using Cookie method instead — log in manually and paste your session cookie.`);
+    }
   }
 
   /**

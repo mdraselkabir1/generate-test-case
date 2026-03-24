@@ -802,6 +802,65 @@ textarea.form-input {
   max-width: 900px;
 }
 
+/* ===== Auth Section ===== */
+.auth-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.auth-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.auth-toggle-label i {
+  color: var(--warning);
+}
+
+.auth-fields {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.auth-fields.hidden {
+  display: none;
+}
+
+.auth-method-fields {
+  margin-top: 8px;
+}
+
+.auth-method-fields.hidden {
+  display: none;
+}
+
+.auth-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--success-light);
+  border-radius: var(--border-radius-sm);
+  font-size: 0.8rem;
+  color: var(--success);
+  border-left: 3px solid var(--success);
+}
+
+.auth-note i {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
 /* ===== Page Actions ===== */
 .page-actions {
   display: flex;
