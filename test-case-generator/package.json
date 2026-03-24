@@ -1,0 +1,11 @@
+{
+  "name": "test-case-generator",
+  "version": "1.0.0",
+  "description": "Generate test plans and test cases from URLs and document files",
+  "scripts": {
+    "dev": "npx serve .",
+    "deploy": "echo 'Push to GitHub and enable GitHub Pages on the main branch'"
+  },
+  "keywords": ["testing", "test-cases", "test-plan", "qa"],
+  "license": "MIT"
+}
