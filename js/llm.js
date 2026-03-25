@@ -43,7 +43,7 @@ const LLM = (() => {
    * Build the system prompt for test case generation.
    */
   function buildSystemPrompt(options) {
-    return `You are an expert QA engineer and test architect. Generate detailed, actionable test cases based on the provided content analysis.
+    return `You are an expert QA engineer and test architect with 15+ years of experience. Generate detailed, actionable test cases based on the provided content analysis.
 
 RULES:
 - Output ONLY valid JSON — no markdown fences, no commentary.
@@ -54,12 +54,23 @@ RULES:
 - "priority" must be one of: critical, high, medium, low
 - Generate ${options.depth === 'basic' ? '5-10' : options.depth === 'standard' ? '10-25' : options.depth === 'comprehensive' ? '25-50' : '50-100'} test cases.
 - Focus on ${options.testType === 'all' ? 'all test types balanced' : options.testType + ' testing'}.
-- Steps should be specific and actionable, not generic.
-- Expected results should be precise and verifiable.
-- Include edge cases, negative tests, and boundary conditions.
-- For source code: reference actual function names, class names, parameters, and return types.
-- For API routes: test all HTTP methods, status codes, auth, and input validation.
-- Think about what a senior QA engineer would actually test.`;
+
+QUALITY REQUIREMENTS:
+- Steps must be specific and actionable — use real field names, button labels, URLs, values from the content.
+- Expected results must be precise and verifiable — include exact messages, status codes, state changes.
+- For each user story, generate tests for happy path, edge cases, and negative scenarios.
+- For each requirement with "shall"/"must", generate at least one verification test.
+- For each business rule, test the condition (true + false) and its outcome.
+- For each workflow, test the complete flow end-to-end and test interruptions at each step.
+- For each role/persona, test permissions granted and permissions denied.
+- For each form field, test valid input, empty input, boundary values, and invalid formats.
+- For each API endpoint, test success, auth failure, validation failure, and edge cases.
+- For each state transition, test valid transitions and invalid/impossible transitions.
+- For each boundary value, test at boundary, below boundary, and above boundary.
+- For each error pattern, test that the error is handled gracefully with a clear message.
+- For each security concern, generate specific exploit/mitigation test scenarios.
+- For each integration point, test connectivity, timeout, and error propagation.
+- Think about what a senior QA engineer would actually test — focus on risk and business impact.`;
   }
 
   /**
@@ -75,11 +86,88 @@ RULES:
     parts.push(`Features: ${analysis.features.join(', ') || 'none'}`);
     parts.push(`Keywords: ${analysis.keywords.slice(0, 30).join(', ') || 'none'}`);
 
-    if (analysis.requirements.length > 0) {
-      parts.push(`\nRequirements:\n${analysis.requirements.slice(0, 20).map((r, i) => `${i + 1}. ${r}`).join('\n')}`);
+    // Sections / Document structure
+    if (analysis.sections && analysis.sections.length > 0) {
+      parts.push(`\nDocument Sections (${analysis.sections.length}):\n${analysis.sections.slice(0, 30).map((s, i) => `  ${i + 1}. ${s}`).join('\n')}`);
     }
+
+    // Requirements
+    if (analysis.requirements.length > 0) {
+      parts.push(`\nRequirements (${analysis.requirements.length}):\n${analysis.requirements.slice(0, 30).map((r, i) => `${i + 1}. ${r}`).join('\n')}`);
+    }
+
+    // User Stories
     if (analysis.userStories.length > 0) {
-      parts.push(`\nUser Stories:\n${analysis.userStories.slice(0, 10).map((s, i) => `${i + 1}. ${s}`).join('\n')}`);
+      parts.push(`\nUser Stories (${analysis.userStories.length}):\n${analysis.userStories.slice(0, 15).map((s, i) => `${i + 1}. ${s}`).join('\n')}`);
+    }
+
+    // Business Rules
+    if (analysis.businessRules && analysis.businessRules.length > 0) {
+      parts.push(`\nBusiness Rules (${analysis.businessRules.length}):\n${analysis.businessRules.slice(0, 20).map((r, i) => `  ${i + 1}. ${r}`).join('\n')}`);
+    }
+
+    // Workflows
+    if (analysis.workflows && analysis.workflows.length > 0) {
+      parts.push(`\nWorkflows (${analysis.workflows.length}):`);
+      analysis.workflows.slice(0, 15).forEach(wf => {
+        if (typeof wf === 'object' && wf.name) {
+          parts.push(`  • ${wf.name}: ${(wf.steps || []).join(' → ')}`);
+        } else {
+          parts.push(`  • ${wf}`);
+        }
+      });
+    }
+
+    // Roles / Personas
+    if (analysis.roles && analysis.roles.length > 0) {
+      parts.push(`\nUser Roles: ${analysis.roles.join(', ')}`);
+    }
+
+    // API Endpoints
+    if (analysis.apiEndpoints && analysis.apiEndpoints.length > 0) {
+      parts.push(`\nAPI Endpoints (${analysis.apiEndpoints.length}):`);
+      analysis.apiEndpoints.slice(0, 30).forEach(ep => {
+        if (typeof ep === 'object') {
+          parts.push(`  - ${ep.method || 'GET'} ${ep.path || ep}`);
+        } else {
+          parts.push(`  - ${ep}`);
+        }
+      });
+    }
+
+    // Form Fields
+    if (analysis.formFields && analysis.formFields.length > 0) {
+      parts.push(`\nForm Fields (${analysis.formFields.length}):\n${analysis.formFields.slice(0, 30).map(f => `  - ${typeof f === 'object' ? (f.name || f.type || JSON.stringify(f)) : f}`).join('\n')}`);
+    }
+
+    // Error Patterns
+    if (analysis.errorPatterns && analysis.errorPatterns.length > 0) {
+      parts.push(`\nError/Exception Patterns (${analysis.errorPatterns.length}):\n${analysis.errorPatterns.slice(0, 20).map(e => `  - ${e}`).join('\n')}`);
+    }
+
+    // Data Models
+    if (analysis.dataModels && analysis.dataModels.length > 0) {
+      parts.push(`\nData Models/Types (${analysis.dataModels.length}):\n${analysis.dataModels.slice(0, 20).map(d => `  - ${d}`).join('\n')}`);
+    }
+
+    // Integration Points
+    if (analysis.integrationPoints && analysis.integrationPoints.length > 0) {
+      parts.push(`\nIntegration Points: ${analysis.integrationPoints.slice(0, 15).join(', ')}`);
+    }
+
+    // State Transitions
+    if (analysis.stateTransitions && analysis.stateTransitions.length > 0) {
+      parts.push(`\nState Transitions (${analysis.stateTransitions.length}):\n${analysis.stateTransitions.slice(0, 15).map(s => `  - ${s}`).join('\n')}`);
+    }
+
+    // Boundary Values
+    if (analysis.boundaryValues && analysis.boundaryValues.length > 0) {
+      parts.push(`\nBoundary Values / Limits (${analysis.boundaryValues.length}):\n${analysis.boundaryValues.slice(0, 15).map(b => `  - ${b}`).join('\n')}`);
+    }
+
+    // Security Concerns
+    if (analysis.securityConcerns && analysis.securityConcerns.length > 0) {
+      parts.push(`\nSecurity Concerns (${analysis.securityConcerns.length}):\n${analysis.securityConcerns.slice(0, 15).map(s => `  - ${s}`).join('\n')}`);
     }
 
     // Source code analysis
@@ -114,10 +202,19 @@ RULES:
       if (ca.errorHandlers.length > 0) {
         parts.push(`\nError Handlers: ${ca.errorHandlers.slice(0, 15).join(', ')}`);
       }
+      if (ca.envVars && ca.envVars.length > 0) {
+        parts.push(`\nEnvironment Variables: ${ca.envVars.slice(0, 20).join(', ')}`);
+      }
+      if (ca.todos && ca.todos.length > 0) {
+        parts.push(`\nTODO/FIXME: ${ca.todos.slice(0, 10).join('; ')}`);
+      }
+      if (ca.complexity) {
+        parts.push(`\nComplexity: conditionals=${ca.complexity.conditionals || 0}, loops=${ca.complexity.loops || 0}, nesting=${ca.complexity.maxNesting || 0}`);
+      }
     }
 
-    // Raw content (trimmed)
-    const maxContent = 12000;
+    // Raw content (trimmed) — increased from 12K to 24K for better context
+    const maxContent = 24000;
     const trimmedContent = content.length > maxContent ? content.substring(0, maxContent) + '\n...(truncated)' : content;
     parts.push(`\n--- RAW CONTENT ---\n${trimmedContent}`);
 
