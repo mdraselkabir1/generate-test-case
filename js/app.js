@@ -21,6 +21,7 @@
     loadSettings();
     bindNavigation();
     bindGenerator();
+    bindLLM();
     bindSettings();
     bindModal();
     bindMisc();
@@ -266,6 +267,133 @@
     $('#generateBtn').addEventListener('click', startGeneration);
   }
 
+  // ============================================================
+  // LLM Controls
+  // ============================================================
+  function bindLLM() {
+    const useLLM = $('#useLLM');
+    const quickCfg = $('#llmQuickConfig');
+    const providerSel = $('#llmProvider');
+    const modelSel = $('#llmModel');
+    const apiKeyInput = $('#llmApiKey');
+    const modeSel = $('#llmMode');
+    const endpointWrap = $('#llmCustomEndpoint');
+    const endpointInput = $('#llmEndpoint');
+
+    // Load saved config
+    const saved = LLM.getConfig();
+    useLLM.checked = saved.enabled || false;
+    quickCfg.classList.toggle('hidden', !saved.enabled);
+    providerSel.value = saved.provider || 'openai';
+    apiKeyInput.value = saved.apiKey || '';
+    modeSel.value = saved.mode || 'llm-only';
+    if (saved.endpoint) endpointInput.value = saved.endpoint;
+    populateModels(providerSel, modelSel, saved.model);
+    endpointWrap.classList.toggle('hidden', providerSel.value !== 'custom');
+
+    // Toggle
+    useLLM.addEventListener('change', () => {
+      quickCfg.classList.toggle('hidden', !useLLM.checked);
+      saveLLMConfig();
+    });
+
+    // Provider change
+    providerSel.addEventListener('change', () => {
+      populateModels(providerSel, modelSel);
+      endpointWrap.classList.toggle('hidden', providerSel.value !== 'custom');
+      saveLLMConfig();
+    });
+
+    // Save on any change
+    [modelSel, modeSel].forEach(el => el.addEventListener('change', saveLLMConfig));
+    [apiKeyInput, endpointInput].forEach(el => el.addEventListener('input', saveLLMConfig));
+
+    // Also wire up the Settings page LLM fields
+    const sp = $('#settingsLlmProvider');
+    const sm = $('#settingsLlmModel');
+    const sk = $('#settingsLlmApiKey');
+    const smode = $('#settingsLlmMode');
+    const se = $('#settingsLlmEndpoint');
+    const seg = $('#settingsCustomEndpointGroup');
+
+    if (sp) {
+      sp.value = saved.provider || 'openai';
+      sk.value = saved.apiKey || '';
+      smode.value = saved.mode || 'llm-only';
+      if (saved.endpoint) se.value = saved.endpoint;
+      populateModels(sp, sm, saved.model);
+      seg.style.display = sp.value === 'custom' ? '' : 'none';
+
+      sp.addEventListener('change', () => {
+        populateModels(sp, sm);
+        seg.style.display = sp.value === 'custom' ? '' : 'none';
+        syncLLMSettings('settings');
+      });
+      [sm, smode].forEach(el => el.addEventListener('change', () => syncLLMSettings('settings')));
+      [sk, se].forEach(el => el.addEventListener('input', () => syncLLMSettings('settings')));
+    }
+
+    function syncLLMSettings(source) {
+      // Sync between generator quick-config and settings page
+      if (source === 'settings') {
+        providerSel.value = sp.value;
+        populateModels(providerSel, modelSel, sm.value);
+        apiKeyInput.value = sk.value;
+        modeSel.value = smode.value;
+        endpointInput.value = se.value;
+        endpointWrap.classList.toggle('hidden', sp.value !== 'custom');
+      }
+      saveLLMConfig();
+    }
+
+    function saveLLMConfig() {
+      const cfg = {
+        enabled: useLLM.checked,
+        provider: providerSel.value,
+        apiKey: apiKeyInput.value,
+        model: modelSel.value,
+        endpoint: endpointInput.value,
+        mode: modeSel.value,
+      };
+      LLM.saveConfig(cfg);
+
+      // Keep settings page in sync
+      if (sp) {
+        sp.value = cfg.provider;
+        populateModels(sp, sm, cfg.model);
+        sk.value = cfg.apiKey;
+        smode.value = cfg.mode;
+        se.value = cfg.endpoint;
+        seg.style.display = cfg.provider === 'custom' ? '' : 'none';
+      }
+    }
+  }
+
+  function populateModels(providerSelect, modelSelect, savedModel) {
+    const provider = providerSelect.value;
+    const info = LLM.PROVIDERS[provider];
+    if (!info) return;
+
+    modelSelect.innerHTML = '';
+    if (provider === 'custom') {
+      // For custom, show a text-like input via a single editable option
+      const opt = document.createElement('option');
+      opt.value = savedModel || '';
+      opt.textContent = savedModel || '(type model name in Settings)';
+      modelSelect.appendChild(opt);
+    } else {
+      info.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+    }
+
+    if (savedModel) modelSelect.value = savedModel;
+    if (!modelSelect.value && info.defaultModel) modelSelect.value = info.defaultModel;
+  }
+
   async function fetchUrlContent() {
     const url = $('#urlInput').value.trim();
     if (!url) { showToast('Please enter a URL', 'warning'); return; }
@@ -465,6 +593,11 @@
       sourceRef,
     };
 
+    // LLM config
+    const llmCfg = LLM.getConfig();
+    const useLLM = $('#useLLM').checked && llmCfg.apiKey;
+    const llmMode = llmCfg.mode || 'llm-only';
+
     // Show progress
     const progressCard = $('#progressCard');
     progressCard.classList.remove('hidden');
@@ -479,8 +612,76 @@
         : `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`;
       await animateProgress('step-analyze', 30, analyzeMsg);
 
-      await animateProgress('step-generate', 60, 'Generating test cases...');
-      const plan = Generator.generateTestPlan(analysis, options);
+      let plan;
+
+      if (useLLM && (llmMode === 'llm-only' || llmMode === 'hybrid')) {
+        // --- LLM-based generation ---
+        await animateProgress('step-generate', 50, `Calling ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
+
+        try {
+          const llmCases = await LLM.generateTestCases(analysis, content, options, llmCfg);
+
+          if (llmMode === 'hybrid') {
+            // Hybrid: combine rule-based + LLM
+            await animateProgress('step-generate', 70, 'Merging rule-based + AI test cases...');
+            const rulePlan = Generator.generateTestPlan(analysis, options);
+            // Merge: rule-based first, then LLM (deduplicated by title similarity)
+            const ruleTitles = new Set(rulePlan.testCases.map(tc => tc.title.toLowerCase()));
+            const uniqueLLM = llmCases.filter(tc => !ruleTitles.has(tc.title.toLowerCase()));
+            rulePlan.testCases.push(...uniqueLLM);
+            rulePlan.testCases.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+            rulePlan.summary = { total: rulePlan.testCases.length, byType: countByField(rulePlan.testCases, 'type'), byPriority: countByField(rulePlan.testCases, 'priority') };
+            rulePlan.name = rulePlan.name + ' (Hybrid)';
+            plan = rulePlan;
+          } else {
+            // LLM-only: wrap in plan structure
+            llmCases.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+            plan = {
+              id: Storage.generateId(),
+              name: (options.planName || 'AI-Generated Test Plan'),
+              createdAt: new Date().toISOString(),
+              source: sourceType,
+              sourceRef: sourceRef,
+              testType: options.testType,
+              depth: options.depth,
+              testCases: llmCases,
+              summary: { total: llmCases.length, byType: countByField(llmCases, 'type'), byPriority: countByField(llmCases, 'priority') },
+            };
+          }
+        } catch (llmErr) {
+          // If LLM fails, fall back to rule-based
+          showToast(`AI generation failed: ${llmErr.message}. Falling back to rule-based.`, 'warning');
+          plan = Generator.generateTestPlan(analysis, options);
+        }
+      } else if (useLLM && llmMode === 'enhance') {
+        // --- Enhance mode: generate rule-based first, then ask LLM to improve ---
+        await animateProgress('step-generate', 50, 'Generating rule-based cases...');
+        plan = Generator.generateTestPlan(analysis, options);
+
+        await animateProgress('step-generate', 65, `Enhancing with ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
+        try {
+          const enhancePrompt = `Here are rule-based test cases. Improve them: make steps more specific, add missing edge cases, improve expected results, and add any critical test cases that are missing. Keep the same JSON format.\n\nCurrent test cases:\n${JSON.stringify(plan.testCases.slice(0, 30), null, 2)}`;
+          const systemPrompt = `You are an expert QA engineer. You will receive existing test cases. Improve them and add missing ones. Output ONLY a JSON array of test case objects with fields: title, type, priority, preconditions, steps (array), expectedResult, notes. No markdown fences.`;
+
+          const resp = await LLM.generateTestCases(
+            analysis,
+            enhancePrompt,
+            options,
+            llmCfg
+          );
+
+          resp.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+          plan.testCases = resp;
+          plan.name = plan.name + ' (AI-Enhanced)';
+          plan.summary = { total: resp.length, byType: countByField(resp, 'type'), byPriority: countByField(resp, 'priority') };
+        } catch (llmErr) {
+          showToast(`AI enhancement failed: ${llmErr.message}. Using rule-based output.`, 'warning');
+        }
+      } else {
+        // --- Rule-based only ---
+        await animateProgress('step-generate', 60, 'Generating test cases...');
+        plan = Generator.generateTestPlan(analysis, options);
+      }
 
       await animateProgress('step-review', 90, `Generated ${plan.testCases.length} test cases!`);
 
@@ -520,6 +721,11 @@
     } finally {
       $('#generateBtn').disabled = false;
     }
+  }
+
+  /** Count occurrences of a field value in an array of objects */
+  function countByField(arr, field) {
+    return arr.reduce((acc, item) => { acc[item[field]] = (acc[item[field]] || 0) + 1; return acc; }, {});
   }
 
   function animateProgress(stepId, percent, text) {

@@ -960,6 +960,60 @@ textarea.form-input {
   line-height: 1.8;
 }
 
+/* ===== LLM Toggle Section ===== */
+.llm-toggle-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+  border: 1px solid var(--accent);
+  border-radius: var(--border-radius);
+  position: relative;
+}
+
+[data-theme="dark"] .llm-toggle-section {
+  background: linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(124,58,237,0.10) 100%);
+}
+
+.llm-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.llm-toggle-label strong {
+  color: var(--text-primary);
+}
+
+.llm-quick-config {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.llm-quick-config .options-grid {
+  margin-top: 0;
+}
+
+.llm-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--info-light);
+  border-radius: var(--border-radius-sm);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.llm-note i {
+  color: var(--info);
+  font-size: 0.9rem;
+}
+
 /* ===== Page Actions ===== */
 .page-actions {
   display: flex;
