@@ -9,6 +9,7 @@ const Generator = (() => {
     standard:      { min: 10, max: 25, edgeCases: true,  negatives: true  },
     comprehensive: { min: 25, max: 50, edgeCases: true,  negatives: true  },
     exhaustive:    { min: 50, max: 200, edgeCases: true,  negatives: true  },
+    expert:        { min: 100, max: 300, edgeCases: true,  negatives: true  },
   };
 
   /**
@@ -1211,6 +1212,41 @@ const Generator = (() => {
     const start = Math.max(0, idx - 50);
     const end = Math.min(text.length, idx + keyword.length + 100);
     return text.substring(start, end).trim();
+  }
+
+  // ============================================================
+  // Deduplication — used by expert depth to avoid near-duplicate cases
+  // ============================================================
+  const STOP_WORDS = new Set([
+    'verify', 'that', 'the', 'is', 'a', 'an', 'and', 'or', 'for', 'with',
+    'system', 'should', 'must', 'does', 'are', 'be', 'to', 'of', 'in', 'on',
+    'it', 'not', 'no', 'can', 'has', 'have', 'do', 'all', 'by', 'from',
+  ]);
+
+  function normalizeTitle(title) {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 1 && !STOP_WORDS.has(w));
+  }
+
+  function deduplicateByTitle(newCases, existingCases) {
+    const existingWordSets = existingCases.map(tc => new Set(normalizeTitle(tc.title)));
+    return newCases.filter(nc => {
+      const newWords = normalizeTitle(nc.title);
+      if (newWords.length === 0) return true;
+      for (const existingWords of existingWordSets) {
+        if (existingWords.size === 0) continue;
+        const overlap = newWords.filter(w => existingWords.has(w)).length;
+        const overlapRatio = Math.max(
+          overlap / newWords.length,
+          overlap / existingWords.size
+        );
+        if (overlapRatio > 0.8) return false;
+      }
+      return true;
+    });
   }
 
   function countBy(arr, key) {
