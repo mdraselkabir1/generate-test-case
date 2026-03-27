@@ -229,19 +229,55 @@
     if (firstItem) selectEntry(firstItem.dataset.id);
   });
 
-  // ── Focus trap stubs (replaced in Task 6) ────────────────────────
-  // These must exist so openGuide/closeGuide work after Task 5.
-  // Task 6 will replace this entire block with the full implementation.
-  function activateFocusTrap() { focusTrapActive = true; }
-  function deactivateFocusTrap() { focusTrapActive = false; }
-  function getFocusable() { return []; }
+  // ── Focus trap ────────────────────────────────────────────────────
+  function getFocusable() {
+    return Array.from(drawer.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(el => !el.disabled && el.offsetParent !== null);
+  }
 
-  // ── Keyboard: Escape closes drawer ────────────────────────────────
-  // Task 6 will DELETE this listener and replace it with the combined
-  // Escape + Tab-trap + arrow-key listener.
+  function activateFocusTrap() {
+    focusTrapActive = true;
+  }
+
+  function deactivateFocusTrap() {
+    focusTrapActive = false;
+  }
+
+  // ── Keyboard: Escape closes, Tab trapped, arrows navigate sidebar ─
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && drawer.classList.contains('active')) {
+    if (!drawer.classList.contains('active')) return;
+
+    if (e.key === 'Escape') {
       closeGuide();
+      return;
+    }
+
+    // Tab focus trap
+    if (e.key === 'Tab' && focusTrapActive) {
+      const focusable = getFocusable();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      return;
+    }
+
+    // Arrow key navigation inside the sidebar
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const items = Array.from(sidebar.querySelectorAll('.guide-sidebar-item'));
+      if (!items.length) return;
+      const current = items.findIndex(i => i.dataset.id === currentId);
+      let next = e.key === 'ArrowDown'
+        ? (current + 1) % items.length
+        : (current - 1 + items.length) % items.length;
+      e.preventDefault();
+      selectEntry(items[next].dataset.id);
+      items[next].focus();
     }
   });
 
