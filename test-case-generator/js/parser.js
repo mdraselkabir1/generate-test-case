@@ -1357,7 +1357,7 @@ const Parser = (() => {
       if (content.length > MAX_FILE_SIZE) {
         stats.skippedLarge++;
         parts.push(`\n${'='.repeat(60)}`);
-        parts.push(`FILE: ${path} (TRUNCATED — ${Math.round(content.length / 1024)}KB > ${MAX_FILE_SIZE / 1024 / 1024}MB limit)`);
+        parts.push(`FILE: ${path} (TRUNCATED — ${Math.round(content.length / 1024)}KB > ${MAX_FILE_SIZE / 1024}KB limit)`);
         parts.push('='.repeat(60));
         parts.push(annotateSourceCode(content.substring(0, MAX_FILE_SIZE), ext, path));
         // Count truncated files in stats so byType and byLanguage are not silently omitted
