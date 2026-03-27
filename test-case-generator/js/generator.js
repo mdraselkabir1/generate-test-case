@@ -82,6 +82,22 @@ const Generator = (() => {
       testCases.push(...generateFromRequirements(analysis, depthConfig));
     }
 
+    // --- Expert depth: methodology-driven generation ---
+    if (depth === 'expert' && typeof METHODOLOGY !== 'undefined') {
+      const typesToGenerate = testType === 'all'
+        ? METHODOLOGY.map(e => e.id)
+        : [testType];
+
+      for (const typeId of typesToGenerate) {
+        const entry = METHODOLOGY.find(e => e.id === typeId);
+        if (!entry) continue;
+        const expertCases = generateExpertCases(analysis, entry);
+        testCases.push(...deduplicateByTitle(expertCases, testCases));
+      }
+    } else if (depth === 'expert') {
+      console.warn('METHODOLOGY not loaded — expert depth falls back to exhaustive');
+    }
+
     // Filter by priority if specified
     let filtered = testCases;
     if (priority && priority !== 'all') {
@@ -90,8 +106,17 @@ const Generator = (() => {
       if (filtered.length < depthConfig.min) filtered = testCases;
     }
 
-    // Trim to max count
-    const finalCases = filtered.slice(0, depthConfig.max);
+    // Trim to max count (priority-aware for expert depth)
+    let finalCases;
+    if (depth === 'expert' && filtered.length > depthConfig.max) {
+      const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      const sorted = [...filtered].sort((a, b) =>
+        (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
+      );
+      finalCases = sorted.slice(0, depthConfig.max);
+    } else {
+      finalCases = filtered.slice(0, depthConfig.max);
+    }
 
     // Assign IDs
     finalCases.forEach((tc, i) => {
