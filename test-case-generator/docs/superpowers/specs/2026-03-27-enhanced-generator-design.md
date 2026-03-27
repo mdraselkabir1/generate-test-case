@@ -34,13 +34,17 @@ User selects "Expert" depth + test type (or "All Types")
 
 `generateExpertCases()` requires the global `METHODOLOGY` array. If `METHODOLOGY` is undefined (methodology.js not loaded), the function returns an empty array — expert depth degrades gracefully to the same output as exhaustive depth. A console warning is logged.
 
+**Script load order:** In `index.html`, `generator.js` loads before `methodology.js`. This is safe because `generateExpertCases()` only accesses `METHODOLOGY` at call time (inside `generateTestPlan()`), not at module-load time. The `typeof METHODOLOGY !== 'undefined'` guard must remain a runtime check inside the function, never moved to module scope.
+
 ## Expert Depth Configuration
 
 Add to `DEPTH_MAP`:
 
 ```js
-expert: { min: 100, max: 300, includeEdgeCases: true, includeNegative: true }
+expert: { min: 100, max: 300, edgeCases: true, negatives: true }
 ```
+
+> Note: `min` is advisory/display-only — the existing code does not enforce a minimum case count. The generator produces as many cases as the methodology data and analysis yield; `min` serves as a UI hint for the expected range.
 
 ## Test Case Generation: `generateExpertCases(analysis, entry)`
 
@@ -112,17 +116,22 @@ if (depth === 'expert' && typeof METHODOLOGY !== 'undefined') {
 }
 ```
 
-### The `exploratory` Type
+### Types Without Existing Generator Functions
 
-`exploratory` exists in METHODOLOGY but not in the existing generator's type-specific functions. When expert depth is selected with "All Types," the `exploratory` methodology entry generates test cases via `generateExpertCases()` just like all other types. No new type-specific generator function is needed.
+Five METHODOLOGY types have no corresponding `generate*Cases()` function in the existing generator: `data-integrity`, `regression`, `compatibility`, `error-recovery`, and `exploratory`. Four of these (`data-integrity`, `regression`, `compatibility`, `error-recovery`) already appear in the `#testType` and `#filterType` HTML selects. `exploratory` does not appear in either select.
+
+For all five types, `generateExpertCases()` is the sole source of test cases at expert depth. No new type-specific generator functions are needed — the methodology data is rich enough to produce quality test cases without type-specific logic.
+
+**HTML update for `exploratory`:** Add `<option value="exploratory">Exploratory</option>` to both the `#testType` select (generator page) and `#filterType` select (test cases page) so exploratory test cases are selectable and filterable.
 
 ### Deduplication
 
 A lightweight `deduplicateByTitle(newCases, existingCases)` function prevents near-duplicate test cases:
 
 - Normalize both titles: lowercase, strip punctuation, collapse whitespace
-- Compare using word overlap: if >80% of words in the new title appear in an existing title (or vice versa), skip the new case
-- This catches cases like "Verify SQL injection protection" (existing) vs. "Verify: Input validation tested with SQL injection payloads" (expert) — these are similar enough to deduplicate
+- Remove stop words before comparison: "verify", "that", "the", "is", "a", "an", "and", "or", "for", "with", "system", "should", "must", "does"
+- Compare using word overlap: if >80% of remaining significant words in the new title appear in an existing title (or vice versa), skip the new case
+- This catches cases like "Verify SQL injection protection" (existing) vs. "Verify: Input validation tested with SQL injection payloads" (expert) — these share "sql" and "injection" which is >80% of significant words
 
 ### Filtering and Capping
 
@@ -130,7 +139,9 @@ After expert cases are appended:
 
 1. Priority filter still applies (if user selected a specific priority)
 2. Total cases are capped at `DEPTH_MAP.expert.max` (300)
-3. When capping, critical cases are preserved first, then high, then medium, then low
+3. **New behavior (expert depth only):** When capping, use priority-aware sorting — critical cases first, then high, then medium, then low — before slicing. The existing `.slice(0, max)` approach is preserved for all other depths to avoid behavior changes.
+
+> Note: The existing code uses a naive `.slice(0, depthConfig.max)` for capping. Priority-aware capping is added only for expert depth to ensure the most important expert-generated cases survive the cap.
 
 ## HTML Changes
 
@@ -148,6 +159,22 @@ Add after the "Exhaustive" option:
 
 ```html
 <option value="expert">Expert</option>
+```
+
+### Generator Page (`#testType` select)
+
+Add after the "Edge Cases" option:
+
+```html
+<option value="exploratory">Exploratory</option>
+```
+
+### Test Cases Page (`#filterType` select)
+
+Add after the "Edge Cases" option:
+
+```html
+<option value="exploratory">Exploratory</option>
 ```
 
 ## Test Case Output Shape
@@ -183,6 +210,14 @@ Per methodology entry, `generateExpertCases()` produces approximately:
 - Objective tests: 4-6 cases
 - **Total per type: ~15-24 cases**
 
-For "All Types" (14 entries): ~210-336 raw cases, capped at 300 after deduplication.
+For "All Types" (14 entries): ~210-336 raw cases, capped at 300 after deduplication. If entries are added to METHODOLOGY in the future, the 300 cap bounds the output regardless.
 
-For a single type: ~15-24 expert cases + existing generator cases (4-12) = ~20-36 total.
+For a single type: ~15-24 expert cases + existing generator cases (4-12) = ~20-36 total. This is below the advisory `min` of 100 — that is expected. The `min` value reflects the "All Types" scenario and serves as a UI range hint, not an enforced minimum.
+
+### Unit and Integration Types
+
+The existing `unit` and `integration` generators only run when `analysis.codeAnalysis.isSourceCode` is true. At expert depth, `generateExpertCases()` produces methodology-based test cases for these types regardless of input type. This is intentional — methodology-informed unit/integration tests provide testing guidance even when the input is not source code (e.g., requirements text that mentions "unit test coverage" or "integration points").
+
+### LLM Enhancement Interaction
+
+When LLM mode is active (hybrid or enhance), the LLM receives the final capped test case array as input. At expert depth this may be up to 300 cases. No special truncation or batching is needed — the existing LLM integration already handles variable-length inputs, and the LLM prompt includes only titles and types, not full test case bodies.
