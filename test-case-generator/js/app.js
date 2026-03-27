@@ -21,9 +21,11 @@
     loadSettings();
     bindNavigation();
     bindGenerator();
+    bindLLM();
     bindSettings();
     bindModal();
     bindMisc();
+    initBookmarklet();
     updateDashboard();
 
     // Go to generator if URL has #generate
@@ -237,8 +239,159 @@
       $('#fileInput').value = '';
     });
 
+    // Project (zip) upload
+    const projectZone = $('#projectUploadZone');
+    const projectInput = $('#projectZipInput');
+    if (projectZone && projectInput) {
+      projectZone.addEventListener('click', () => projectInput.click());
+      projectZone.addEventListener('dragover', e => { e.preventDefault(); projectZone.classList.add('dragover'); });
+      projectZone.addEventListener('dragleave', () => projectZone.classList.remove('dragover'));
+      projectZone.addEventListener('drop', e => {
+        e.preventDefault();
+        projectZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleProjectZip(e.dataTransfer.files[0]);
+      });
+      projectInput.addEventListener('change', () => {
+        if (projectInput.files.length) handleProjectZip(projectInput.files[0]);
+      });
+      $('#clearProjectPreview').addEventListener('click', () => {
+        $('#projectPreview').classList.add('hidden');
+        $('#projectPreviewBody').textContent = '';
+        $('#projectStats').textContent = '';
+        parsedContent = '';
+        projectInput.value = '';
+      });
+    }
+
     // Generate button
     $('#generateBtn').addEventListener('click', startGeneration);
+  }
+
+  // ============================================================
+  // LLM Controls
+  // ============================================================
+  function bindLLM() {
+    const useLLM = $('#useLLM');
+    const quickCfg = $('#llmQuickConfig');
+    const providerSel = $('#llmProvider');
+    const modelSel = $('#llmModel');
+    const apiKeyInput = $('#llmApiKey');
+    const modeSel = $('#llmMode');
+    const endpointWrap = $('#llmCustomEndpoint');
+    const endpointInput = $('#llmEndpoint');
+
+    // Load saved config
+    const saved = LLM.getConfig();
+    useLLM.checked = saved.enabled || false;
+    quickCfg.classList.toggle('hidden', !saved.enabled);
+    providerSel.value = saved.provider || 'openai';
+    apiKeyInput.value = saved.apiKey || '';
+    modeSel.value = saved.mode || 'llm-only';
+    if (saved.endpoint) endpointInput.value = saved.endpoint;
+    populateModels(providerSel, modelSel, saved.model);
+    endpointWrap.classList.toggle('hidden', providerSel.value !== 'custom');
+
+    // Toggle
+    useLLM.addEventListener('change', () => {
+      quickCfg.classList.toggle('hidden', !useLLM.checked);
+      saveLLMConfig();
+    });
+
+    // Provider change
+    providerSel.addEventListener('change', () => {
+      populateModels(providerSel, modelSel);
+      endpointWrap.classList.toggle('hidden', providerSel.value !== 'custom');
+      saveLLMConfig();
+    });
+
+    // Save on any change
+    [modelSel, modeSel].forEach(el => el.addEventListener('change', saveLLMConfig));
+    [apiKeyInput, endpointInput].forEach(el => el.addEventListener('input', saveLLMConfig));
+
+    // Also wire up the Settings page LLM fields
+    const sp = $('#settingsLlmProvider');
+    const sm = $('#settingsLlmModel');
+    const sk = $('#settingsLlmApiKey');
+    const smode = $('#settingsLlmMode');
+    const se = $('#settingsLlmEndpoint');
+    const seg = $('#settingsCustomEndpointGroup');
+
+    if (sp) {
+      sp.value = saved.provider || 'openai';
+      sk.value = saved.apiKey || '';
+      smode.value = saved.mode || 'llm-only';
+      if (saved.endpoint) se.value = saved.endpoint;
+      populateModels(sp, sm, saved.model);
+      seg.style.display = sp.value === 'custom' ? '' : 'none';
+
+      sp.addEventListener('change', () => {
+        populateModels(sp, sm);
+        seg.style.display = sp.value === 'custom' ? '' : 'none';
+        syncLLMSettings('settings');
+      });
+      [sm, smode].forEach(el => el.addEventListener('change', () => syncLLMSettings('settings')));
+      [sk, se].forEach(el => el.addEventListener('input', () => syncLLMSettings('settings')));
+    }
+
+    function syncLLMSettings(source) {
+      // Sync between generator quick-config and settings page
+      if (source === 'settings') {
+        providerSel.value = sp.value;
+        populateModels(providerSel, modelSel, sm.value);
+        apiKeyInput.value = sk.value;
+        modeSel.value = smode.value;
+        endpointInput.value = se.value;
+        endpointWrap.classList.toggle('hidden', sp.value !== 'custom');
+      }
+      saveLLMConfig();
+    }
+
+    function saveLLMConfig() {
+      const cfg = {
+        enabled: useLLM.checked,
+        provider: providerSel.value,
+        apiKey: apiKeyInput.value,
+        model: modelSel.value,
+        endpoint: endpointInput.value,
+        mode: modeSel.value,
+      };
+      LLM.saveConfig(cfg);
+
+      // Keep settings page in sync
+      if (sp) {
+        sp.value = cfg.provider;
+        populateModels(sp, sm, cfg.model);
+        sk.value = cfg.apiKey;
+        smode.value = cfg.mode;
+        se.value = cfg.endpoint;
+        seg.style.display = cfg.provider === 'custom' ? '' : 'none';
+      }
+    }
+  }
+
+  function populateModels(providerSelect, modelSelect, savedModel) {
+    const provider = providerSelect.value;
+    const info = LLM.PROVIDERS[provider];
+    if (!info) return;
+
+    modelSelect.innerHTML = '';
+    if (provider === 'custom') {
+      // For custom, show a text-like input via a single editable option
+      const opt = document.createElement('option');
+      opt.value = savedModel || '';
+      opt.textContent = savedModel || '(type model name in Settings)';
+      modelSelect.appendChild(opt);
+    } else {
+      info.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+    }
+
+    if (savedModel) modelSelect.value = savedModel;
+    if (!modelSelect.value && info.defaultModel) modelSelect.value = info.defaultModel;
   }
 
   async function fetchUrlContent() {
@@ -332,6 +485,68 @@
     }
   }
 
+  async function handleProjectZip(file) {
+    const maxSize = 3 * 1024 * 1024 * 1024; // 3GB for zip
+    if (file.size > maxSize) {
+      showToast('Zip file too large (max 50MB)', 'error');
+      return;
+    }
+    if (!file.name.endsWith('.zip')) {
+      showToast('Please upload a .zip file', 'error');
+      return;
+    }
+
+    const zone = $('#projectUploadZone');
+    zone.innerHTML = '<i class="fas fa-spinner fa-spin"></i><h3>Extracting project files...</h3><p>This may take a moment for large projects</p>';
+
+    try {
+      const includeTests = $('#includeTests').checked;
+      const includeDocs = $('#includeDocs').checked;
+      const result = await Parser.parseProjectZip(file, { includeTests, includeDocs });
+
+      parsedContent = result.text;
+      $('#projectName').textContent = file.name;
+
+      // Build stats display
+      const langList = Object.entries(result.stats.byLanguage)
+        .sort((a, b) => b[1] - a[1])
+        .map(([lang, count]) => `${lang}: ${count}`)
+        .join(', ');
+      $('#projectStats').textContent = `${result.stats.parsedFiles} files parsed (${result.stats.byType.code} code, ${result.stats.byType.doc} docs)`;
+
+      // Build preview
+      const preview = [
+        `Project: ${file.name}`,
+        `Files: ${result.stats.parsedFiles} of ${result.stats.totalFiles} total`,
+        `Languages: ${langList}`,
+        result.stats.skippedLarge > 0 ? `(${result.stats.skippedLarge} files truncated due to size)` : '',
+        '',
+        '--- Content Preview ---',
+        result.text.substring(0, 8000),
+        result.text.length > 8000 ? '\n\n... (truncated preview — full content will be analyzed)' : '',
+      ].filter(Boolean).join('\n');
+
+      $('#projectPreview').classList.remove('hidden');
+      $('#projectPreviewBody').textContent = preview;
+      showToast(`Project "${file.name}" extracted: ${result.stats.parsedFiles} files (${langList})`, 'success');
+    } catch (err) {
+      showToast(`Failed to parse project: ${err.message}`, 'error');
+    } finally {
+      // Restore upload zone
+      zone.innerHTML = `
+        <i class="fas fa-folder-open"></i>
+        <h3>Upload Project Source Code</h3>
+        <p>Drop a <strong>.zip file</strong> or click to browse</p>
+        <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
+        <input type="file" id="projectZipInput" accept=".zip" hidden>`;
+      // Re-bind the new input
+      const newInput = $('#projectZipInput');
+      newInput.addEventListener('change', () => {
+        if (newInput.files.length) handleProjectZip(newInput.files[0]);
+      });
+    }
+  }
+
   async function startGeneration() {
     // Determine content
     const activeTab = $('.tab-btn.active').dataset.tab;
@@ -351,6 +566,14 @@
       content = parsedContent || '';
       sourceType = 'file';
       sourceRef = $('#fileName').textContent;
+    } else if (activeTab === 'project-tab') {
+      content = parsedContent || '';
+      sourceType = 'project';
+      sourceRef = $('#projectName').textContent || 'project.zip';
+      if (!content) {
+        showToast('Please upload a project zip file first', 'warning');
+        return;
+      }
     } else {
       content = $('#textInput').value.trim();
       sourceType = 'text';
@@ -370,6 +593,11 @@
       sourceRef,
     };
 
+    // LLM config
+    const llmCfg = LLM.getConfig();
+    const useLLM = $('#useLLM').checked && llmCfg.apiKey;
+    const llmMode = llmCfg.mode || 'llm-only';
+
     // Show progress
     const progressCard = $('#progressCard');
     progressCard.classList.remove('hidden');
@@ -379,10 +607,81 @@
       await animateProgress('step-parse', 0, 'Parsing content...');
       const analysis = Parser.analyzeContent(content);
 
-      await animateProgress('step-analyze', 30, `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`);
+      const analyzeMsg = analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode
+        ? `Found ${analysis.codeAnalysis.functions.length} functions, ${analysis.codeAnalysis.classes.length} classes, ${analysis.codeAnalysis.apiRoutes.length} routes in ${analysis.codeAnalysis.language}...`
+        : `Found ${analysis.actions.length} actions, ${analysis.entities.length} entities, ${analysis.requirements.length} requirements...`;
+      await animateProgress('step-analyze', 30, analyzeMsg);
 
-      await animateProgress('step-generate', 60, 'Generating test cases...');
-      const plan = Generator.generateTestPlan(analysis, options);
+      let plan;
+
+      if (useLLM && (llmMode === 'llm-only' || llmMode === 'hybrid')) {
+        // --- LLM-based generation ---
+        await animateProgress('step-generate', 50, `Calling ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
+
+        try {
+          const llmCases = await LLM.generateTestCases(analysis, content, options, llmCfg);
+
+          if (llmMode === 'hybrid') {
+            // Hybrid: combine rule-based + LLM
+            await animateProgress('step-generate', 70, 'Merging rule-based + AI test cases...');
+            const rulePlan = Generator.generateTestPlan(analysis, options);
+            // Merge: rule-based first, then LLM (deduplicated by title similarity)
+            const ruleTitles = new Set(rulePlan.testCases.map(tc => tc.title.toLowerCase()));
+            const uniqueLLM = llmCases.filter(tc => !ruleTitles.has(tc.title.toLowerCase()));
+            rulePlan.testCases.push(...uniqueLLM);
+            rulePlan.testCases.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+            rulePlan.summary = { total: rulePlan.testCases.length, byType: countByField(rulePlan.testCases, 'type'), byPriority: countByField(rulePlan.testCases, 'priority') };
+            rulePlan.name = rulePlan.name + ' (Hybrid)';
+            plan = rulePlan;
+          } else {
+            // LLM-only: wrap in plan structure
+            llmCases.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+            plan = {
+              id: Storage.generateId(),
+              name: (options.planName || 'AI-Generated Test Plan'),
+              createdAt: new Date().toISOString(),
+              source: sourceType,
+              sourceRef: sourceRef,
+              testType: options.testType,
+              depth: options.depth,
+              testCases: llmCases,
+              summary: { total: llmCases.length, byType: countByField(llmCases, 'type'), byPriority: countByField(llmCases, 'priority') },
+            };
+          }
+        } catch (llmErr) {
+          // If LLM fails, fall back to rule-based
+          showToast(`AI generation failed: ${llmErr.message}. Falling back to rule-based.`, 'warning');
+          plan = Generator.generateTestPlan(analysis, options);
+        }
+      } else if (useLLM && llmMode === 'enhance') {
+        // --- Enhance mode: generate rule-based first, then ask LLM to improve ---
+        await animateProgress('step-generate', 50, 'Generating rule-based cases...');
+        plan = Generator.generateTestPlan(analysis, options);
+
+        await animateProgress('step-generate', 65, `Enhancing with ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
+        try {
+          const enhancePrompt = `Here are rule-based test cases. Improve them: make steps more specific, add missing edge cases, improve expected results, and add any critical test cases that are missing. Keep the same JSON format.\n\nCurrent test cases:\n${JSON.stringify(plan.testCases.slice(0, 30), null, 2)}`;
+          const systemPrompt = `You are an expert QA engineer. You will receive existing test cases. Improve them and add missing ones. Output ONLY a JSON array of test case objects with fields: title, type, priority, preconditions, steps (array), expectedResult, notes. No markdown fences.`;
+
+          const resp = await LLM.generateTestCases(
+            analysis,
+            enhancePrompt,
+            options,
+            llmCfg
+          );
+
+          resp.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+          plan.testCases = resp;
+          plan.name = plan.name + ' (AI-Enhanced)';
+          plan.summary = { total: resp.length, byType: countByField(resp, 'type'), byPriority: countByField(resp, 'priority') };
+        } catch (llmErr) {
+          showToast(`AI enhancement failed: ${llmErr.message}. Using rule-based output.`, 'warning');
+        }
+      } else {
+        // --- Rule-based only ---
+        await animateProgress('step-generate', 60, 'Generating test cases...');
+        plan = Generator.generateTestPlan(analysis, options);
+      }
 
       await animateProgress('step-review', 90, `Generated ${plan.testCases.length} test cases!`);
 
@@ -422,6 +721,11 @@
     } finally {
       $('#generateBtn').disabled = false;
     }
+  }
+
+  /** Count occurrences of a field value in an array of objects */
+  function countByField(arr, field) {
+    return arr.reduce((acc, item) => { acc[item[field]] = (acc[item[field]] || 0) + 1; return acc; }, {});
   }
 
   function animateProgress(stepId, percent, text) {
@@ -836,6 +1140,76 @@
         showToast('History cleared', 'info');
       }
     });
+  }
+
+  // ============================================================
+  // Page Grabber Bookmarklet
+  // ============================================================
+  function initBookmarklet() {
+    // Build the bookmarklet JS (runs on the target page)
+    const bookmarkletCode = `
+(function(){
+  try {
+    var removeTags = ['script','style','nav','footer','header','iframe','noscript','svg'];
+    var clone = document.body.cloneNode(true);
+    removeTags.forEach(function(t){ clone.querySelectorAll(t).forEach(function(e){ e.remove(); }); });
+    var lines = [];
+    lines.push('# ' + document.title);
+    lines.push('URL: ' + location.href);
+    lines.push('');
+    function walk(node) {
+      if (node.nodeType === 3) {
+        var t = node.textContent.trim();
+        if (t) lines.push(t);
+      } else if (node.nodeType === 1) {
+        var tag = node.tagName.toLowerCase();
+        if (['h1','h2','h3','h4','h5','h6'].indexOf(tag) >= 0) {
+          lines.push('');
+          lines.push('## ' + node.textContent.trim());
+        } else if (tag === 'li') {
+          lines.push('- ' + node.textContent.trim());
+        } else if (tag === 'tr') {
+          var cells = [];
+          node.querySelectorAll('td,th').forEach(function(c){ cells.push(c.textContent.trim()); });
+          if (cells.length) lines.push('| ' + cells.join(' | ') + ' |');
+        } else if (['table','thead','tbody'].indexOf(tag) >= 0) {
+          node.childNodes.forEach(walk);
+        } else if (['p','div','section','article','main'].indexOf(tag) >= 0) {
+          node.childNodes.forEach(walk);
+          lines.push('');
+        } else {
+          node.childNodes.forEach(walk);
+        }
+      }
+    }
+    var main = clone.querySelector('main,article,[role=main],.content,.main,#content,#main');
+    walk(main || clone);
+    var text = lines.join('\\n').replace(/\\n{3,}/g,'\\n\\n').trim();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function(){
+        alert('Page content copied to clipboard! (' + text.length + ' chars)\\n\\nNow go to Test Case Generator → Text Input tab and paste (Ctrl+V / Cmd+V).');
+      }, function(){
+        prompt('Auto-copy failed. Select all text below and copy manually:', text.substring(0, 5000));
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      alert('Page content copied! (' + text.length + ' chars)\\n\\nGo to Test Case Generator → Text Input tab and paste.');
+    }
+  } catch(e) {
+    alert('Grab Page error: ' + e.message);
+  }
+})();`.trim();
+
+    const encoded = 'javascript:' + encodeURIComponent(bookmarkletCode);
+    const el = $('#grabPageBookmarklet');
+    if (el) {
+      el.href = encoded;
+    }
   }
 
   // ============================================================

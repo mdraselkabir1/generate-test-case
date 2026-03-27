@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -182,6 +183,9 @@
                   <button class="tab-btn" data-tab="file-tab">
                     <i class="fas fa-file-upload"></i> Document
                   </button>
+                  <button class="tab-btn" data-tab="project-tab">
+                    <i class="fas fa-folder-open"></i> Project
+                  </button>
                   <button class="tab-btn" data-tab="text-tab">
                     <i class="fas fa-keyboard"></i> Text
                   </button>
@@ -276,6 +280,35 @@
                     </div>
                     <div class="preview-body" id="urlPreviewBody"></div>
                   </div>
+
+                  <!-- Bookmarklet Helper -->
+                  <div class="bookmarklet-section">
+                    <div class="bookmarklet-header">
+                      <i class="fas fa-magic"></i>
+                      <strong>Can't fetch? Use the Page Grabber bookmarklet</strong>
+                    </div>
+                    <p class="bookmarklet-desc">
+                      Works on <strong>any</strong> authenticated page — OAuth, SSO, MFA, or any login. Drag the button below to your bookmarks bar, 
+                      then click it on any page to grab its content.
+                    </p>
+                    <div class="bookmarklet-actions">
+                      <a id="grabPageBookmarklet" class="btn btn-bookmarklet" href="#" title="Drag this to your bookmarks bar"
+                        onclick="event.preventDefault(); showToast('Drag this button to your bookmarks bar, then click it on any page!', 'info');">
+                        <i class="fas fa-hand-pointer"></i> 📋 Grab Page
+                      </a>
+                      <span class="bookmarklet-hint">← Drag to bookmarks bar</span>
+                    </div>
+                    <details class="bookmarklet-details">
+                      <summary>How does it work?</summary>
+                      <ol>
+                        <li>Drag the <strong>"📋 Grab Page"</strong> button to your browser's bookmarks bar</li>
+                        <li>Navigate to any authenticated page (e.g. Odoo, Jira, Coverity)</li>
+                        <li>Click the bookmarklet in your bookmarks bar</li>
+                        <li>The page content is copied to your clipboard</li>
+                        <li>Come back here, go to <strong>Text Input</strong> tab, and press <strong>Ctrl+V / Cmd+V</strong></li>
+                      </ol>
+                    </details>
+                  </div>
                 </div>
 
                 <!-- File Tab -->
@@ -284,8 +317,8 @@
                     <i class="fas fa-cloud-upload-alt"></i>
                     <h3>Drop your file here</h3>
                     <p>or click to browse</p>
-                    <small>Supports: .docx, .pdf, .txt, .md, .xlsx, .csv</small>
-                    <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.xlsx,.csv,.doc" hidden>
+                    <small>Supports: Source code (.js, .py, .java, .ts, .go, .rs, .c, .cpp, .rb, .php, etc.), Docs (.docx, .pdf, .txt, .md, .xlsx, .csv), Config (.json, .yaml, .xml, .env)</small>
+                    <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.xlsx,.csv,.doc,.js,.jsx,.ts,.tsx,.mjs,.py,.java,.kt,.c,.h,.cpp,.hpp,.cs,.go,.rs,.swift,.dart,.rb,.php,.sh,.bash,.sql,.graphql,.html,.htm,.css,.scss,.xml,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.proto,.dockerfile,.makefile,.vue,.svelte,.ex,.erl,.hs,.clj,.feature,.spec,.rst,.adoc,.log,.tf,.hcl,.groovy,.scala,.lua,.r,.pl" hidden>
                   </div>
                   <div id="filePreview" class="content-preview hidden">
                     <div class="preview-header">
@@ -293,6 +326,35 @@
                       <button class="btn-icon" id="clearFilePreview"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="preview-body" id="filePreviewBody"></div>
+                  </div>
+                </div>
+
+                <!-- Project Tab (Folder / Zip Upload) -->
+                <div class="tab-content" id="project-tab">
+                  <div class="upload-zone" id="projectUploadZone">
+                    <i class="fas fa-folder-open"></i>
+                    <h3>Upload Project Source Code</h3>
+                    <p>Drop a <strong>.zip file</strong> or click to browse</p>
+                    <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
+                    <input type="file" id="projectZipInput" accept=".zip" hidden>
+                  </div>
+                  <div class="project-upload-options">
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeTests" class="form-checkbox">
+                      <i class="fas fa-vial"></i> Include existing test files in analysis
+                    </label>
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeDocs" class="form-checkbox" checked>
+                      <i class="fas fa-file-alt"></i> Include documentation files (README, docs/)
+                    </label>
+                  </div>
+                  <div id="projectPreview" class="content-preview hidden">
+                    <div class="preview-header">
+                      <span id="projectName">project.zip</span>
+                      <span id="projectStats" class="project-stats"></span>
+                      <button class="btn-icon" id="clearProjectPreview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="preview-body" id="projectPreviewBody"></div>
                   </div>
                 </div>
 
@@ -318,11 +380,17 @@
                       <select id="testType" class="form-input">
                         <option value="all">All Types</option>
                         <option value="functional">Functional</option>
+                        <option value="unit">Unit Test</option>
                         <option value="ui">UI/UX</option>
                         <option value="api">API</option>
                         <option value="security">Security</option>
                         <option value="performance">Performance</option>
                         <option value="accessibility">Accessibility</option>
+                        <option value="integration">Integration</option>
+                        <option value="data-integrity">Data Integrity</option>
+                        <option value="regression">Regression</option>
+                        <option value="compatibility">Compatibility</option>
+                        <option value="error-recovery">Error Recovery</option>
                         <option value="edge-cases">Edge Cases</option>
                       </select>
                     </div>
@@ -344,6 +412,54 @@
                         <option value="comprehensive">Comprehensive (25-50 cases)</option>
                         <option value="exhaustive">Exhaustive (50+ cases)</option>
                       </select>
+                    </div>
+                  </div>
+
+                  <!-- LLM Enhancement Toggle -->
+                  <div class="llm-toggle-section">
+                    <label class="llm-toggle-label">
+                      <input type="checkbox" id="useLLM" class="form-checkbox">
+                      <i class="fas fa-robot"></i> <strong>Use AI / LLM</strong> for enhanced generation
+                    </label>
+                    <div id="llmQuickConfig" class="llm-quick-config hidden">
+                      <div class="options-grid">
+                        <div class="form-group">
+                          <label for="llmProvider">AI Provider</label>
+                          <select id="llmProvider" class="form-input">
+                            <option value="openai">OpenAI (GPT)</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="custom">Custom / Local</option>
+                          </select>
+                        </div>
+                        <div class="form-group">
+                          <label for="llmModel">Model</label>
+                          <select id="llmModel" class="form-input">
+                          </select>
+                        </div>
+                        <div class="form-group">
+                          <label for="llmApiKey">API Key</label>
+                          <input type="password" id="llmApiKey" class="form-input" placeholder="sk-... or paste your key" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                          <label for="llmMode">Generation Mode</label>
+                          <select id="llmMode" class="form-input">
+                            <option value="llm-only">LLM Only — AI generates all test cases</option>
+                            <option value="hybrid">Hybrid — rule-based + AI combined</option>
+                            <option value="enhance">Enhance — AI refines rule-based output</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div id="llmCustomEndpoint" class="form-group hidden">
+                        <label for="llmEndpoint">Custom API Endpoint</label>
+                        <input type="url" id="llmEndpoint" class="form-input" placeholder="http://localhost:11434/v1/chat/completions">
+                        <small class="form-hint">For Ollama, LM Studio, or any OpenAI-compatible API</small>
+                      </div>
+                      <div class="llm-note">
+                        <i class="fas fa-shield-alt"></i>
+                        <span>API keys are stored locally in your browser only. Keys are sent directly to the provider — never through our servers.</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -426,6 +542,11 @@
                 <option value="security">Security</option>
                 <option value="performance">Performance</option>
                 <option value="accessibility">Accessibility</option>
+                <option value="integration">Integration</option>
+                <option value="data-integrity">Data Integrity</option>
+                <option value="regression">Regression</option>
+                <option value="compatibility">Compatibility</option>
+                <option value="error-recovery">Error Recovery</option>
                 <option value="edge-cases">Edge Cases</option>
               </select>
               <select id="filterPriority" class="form-input">
@@ -521,6 +642,42 @@
               </div>
             </div>
             <div class="card">
+              <div class="card-header"><h2>AI / LLM Settings</h2></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label for="settingsLlmProvider">Default AI Provider</label>
+                  <select id="settingsLlmProvider" class="form-input">
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="google">Google (Gemini)</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="custom">Custom / Local</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmModel">Default Model</label>
+                  <select id="settingsLlmModel" class="form-input"></select>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmApiKey">API Key</label>
+                  <input type="password" id="settingsLlmApiKey" class="form-input" placeholder="sk-..." autocomplete="off">
+                  <small class="form-hint">Stored locally in your browser. Sent directly to the provider.</small>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmMode">Default Generation Mode</label>
+                  <select id="settingsLlmMode" class="form-input">
+                    <option value="llm-only">LLM Only — AI generates all test cases</option>
+                    <option value="hybrid">Hybrid — rule-based + AI combined</option>
+                    <option value="enhance">Enhance — AI refines rule-based output</option>
+                  </select>
+                </div>
+                <div class="form-group" id="settingsCustomEndpointGroup" style="display:none">
+                  <label for="settingsLlmEndpoint">Custom API Endpoint</label>
+                  <input type="url" id="settingsLlmEndpoint" class="form-input" placeholder="http://localhost:11434/v1/chat/completions">
+                </div>
+              </div>
+            </div>
+            <div class="card">
               <div class="card-header"><h2>Data Management</h2></div>
               <div class="card-body">
                 <div class="btn-group">
@@ -571,6 +728,7 @@
   <script src="js/storage.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/generator.js"></script>
+  <script src="js/llm.js"></script>
   <script src="js/exporter.js"></script>
   <script src="js/app.js"></script>
 </body>
