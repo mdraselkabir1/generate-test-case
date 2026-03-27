@@ -6,6 +6,7 @@ const Exporter = (() => {
   function exportPlan(plan, format) {
     switch (format) {
       case 'csv': return exportCSV(plan);
+      case 'xlsx': return exportXLSX(plan);
       case 'json': return exportJSON(plan);
       case 'markdown': return exportMarkdown(plan);
       case 'html': return exportHTML(plan);
@@ -19,6 +20,7 @@ const Exporter = (() => {
 
     switch (format) {
       case 'csv': return exportAllCSV(plans);
+      case 'xlsx': return exportAllXLSX(plans);
       case 'json': return exportAllJSON(plans);
       case 'markdown': return exportAllMarkdown(plans);
       case 'html': return exportAllHTML(plans);
@@ -64,6 +66,90 @@ const Exporter = (() => {
     });
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     return { content: csv, filename: 'all-test-plans.csv', mimeType: 'text/csv' };
+  }
+
+  // ===== Excel (.xlsx) =====
+  function exportXLSX(plan) {
+    const rows = plan.testCases.map(tc => ({
+      'ID': tc.id,
+      'Title': tc.title,
+      'Type': tc.type,
+      'Priority': tc.priority,
+      'Preconditions': tc.preconditions,
+      'Steps': tc.steps.join('\n'),
+      'Expected Result': tc.expectedResult,
+      'Notes': tc.notes || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 10 }, { wch: 40 }, { wch: 14 }, { wch: 10 },
+      { wch: 30 }, { wch: 50 }, { wch: 40 }, { wch: 30 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Test Cases');
+
+    // Add summary sheet
+    const summaryData = [
+      { 'Field': 'Plan Name', 'Value': plan.name },
+      { 'Field': 'Created', 'Value': new Date(plan.createdAt).toLocaleString() },
+      { 'Field': 'Source', 'Value': plan.source + (plan.sourceRef ? ` (${plan.sourceRef})` : '') },
+      { 'Field': 'Total Cases', 'Value': plan.testCases.length },
+      { 'Field': '', 'Value': '' },
+      { 'Field': '--- By Type ---', 'Value': '' },
+      ...Object.entries(plan.summary.byType).map(([k, v]) => ({ 'Field': k, 'Value': v })),
+      { 'Field': '', 'Value': '' },
+      { 'Field': '--- By Priority ---', 'Value': '' },
+      ...Object.entries(plan.summary.byPriority).map(([k, v]) => ({ 'Field': k, 'Value': v })),
+    ];
+    const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+    summaryWs['!cols'] = [{ wch: 20 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+
+    const xlsxData = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return { content: xlsxData, filename: `${sanitizeFilename(plan.name)}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', binary: true };
+  }
+
+  function exportAllXLSX(plans) {
+    const wb = XLSX.utils.book_new();
+
+    // All cases in one sheet
+    const allRows = [];
+    plans.forEach(plan => {
+      plan.testCases.forEach(tc => {
+        allRows.push({
+          'Plan': plan.name,
+          'ID': tc.id,
+          'Title': tc.title,
+          'Type': tc.type,
+          'Priority': tc.priority,
+          'Preconditions': tc.preconditions,
+          'Steps': tc.steps.join('\n'),
+          'Expected Result': tc.expectedResult,
+          'Notes': tc.notes || '',
+        });
+      });
+    });
+    const ws = XLSX.utils.json_to_sheet(allRows);
+    ws['!cols'] = [
+      { wch: 25 }, { wch: 10 }, { wch: 40 }, { wch: 14 }, { wch: 10 },
+      { wch: 30 }, { wch: 50 }, { wch: 40 }, { wch: 30 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'All Test Cases');
+
+    // Overview sheet
+    const overviewRows = plans.map(plan => ({
+      'Plan Name': plan.name,
+      'Created': new Date(plan.createdAt).toLocaleString(),
+      'Source': plan.source,
+      'Total Cases': plan.testCases.length,
+      'Depth': plan.depth || '',
+    }));
+    const overviewWs = XLSX.utils.json_to_sheet(overviewRows);
+    overviewWs['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, overviewWs, 'Plans Overview');
+
+    const xlsxData = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return { content: xlsxData, filename: 'all-test-plans.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', binary: true };
   }
 
   // ===== JSON =====
@@ -214,7 +300,8 @@ const Exporter = (() => {
   // ===== Download Helper =====
   function download(exportResult) {
     if (!exportResult) return;
-    const blob = new Blob([exportResult.content], { type: exportResult.mimeType });
+    const data = exportResult.binary ? exportResult.content : [exportResult.content];
+    const blob = new Blob(data instanceof ArrayBuffer ? [data] : Array.isArray(data) ? data : [data], { type: exportResult.mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
