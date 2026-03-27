@@ -1319,7 +1319,7 @@
     const btn = $('#selectFolderBtn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading folder\u2026'; }
 
-    const MAX_FILES = 500;
+    const MAX_FILES = 200000;
 
     try {
       const totalFiles = allHandles.length;
