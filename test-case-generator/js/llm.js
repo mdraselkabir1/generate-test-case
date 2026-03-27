@@ -407,6 +407,113 @@ QUALITY REQUIREMENTS:
   }
 
   /**
+   * Build a system prompt specialized for full project / codebase analysis.
+   */
+  function buildProjectSystemPrompt(options) {
+    return `You are an expert QA engineer, test architect, and senior software engineer with 15+ years of experience analyzing full codebases and designing comprehensive test strategies.
+
+You are given the FULL SOURCE CODE of a software project. Your job is to deeply understand the project architecture, modules, data flow, and business logic, then generate thorough, actionable test cases.
+
+ANALYSIS APPROACH:
+1. First understand the project structure — identify entry points, core modules, utilities, models, routes, and configuration.
+2. Identify all public APIs, endpoints, exported functions, classes, and their interactions.
+3. Trace data flows: input → processing → output, including database operations and external calls.
+4. Identify error handling patterns, edge cases, and security-sensitive code paths.
+5. Look for implicit dependencies, shared state, race conditions, and integration boundaries.
+
+RULES:
+- Output ONLY valid JSON — no markdown fences, no commentary.
+- Return an array of test case objects.
+- Each object must have exactly these fields:
+  { "title": string, "type": string, "priority": string, "preconditions": string, "steps": string[], "expectedResult": string, "notes": string }
+- "type" must be one of: functional, unit, ui, api, security, performance, accessibility, integration, edge-cases, data-integrity, regression, compatibility, error-recovery
+- "priority" must be one of: critical, high, medium, low
+- Generate ${options.depth === 'basic' ? '10-20' : options.depth === 'standard' ? '20-40' : options.depth === 'comprehensive' ? '40-80' : '80-150'} test cases.
+- Focus on ${options.testType === 'all' ? 'all test types balanced' : options.testType + ' testing'}.
+
+QUALITY REQUIREMENTS:
+- Reference actual function names, class names, file paths, variable names, and API routes from the code.
+- Steps must be specific — mention exact method calls, parameters, and expected return values.
+- For each module/file, generate unit tests for its exported functions and classes.
+- For cross-module interactions, generate integration tests.
+- Test error paths: what happens when dependencies fail, inputs are invalid, or state is corrupted.
+- Test security: injection, auth bypass, data exposure, insecure defaults, missing validation.
+- Test performance: O(n²) loops, unbounded queries, memory leaks, missing pagination.
+- Test edge cases: empty collections, null/undefined, concurrent access, max limits, Unicode, special chars.
+- For API routes, test all HTTP methods, auth requirements, input validation, and error responses.
+- For database operations, test CRUD completeness, constraints, transactions, and migration safety.
+- Think about what a senior engineer would catch in a thorough code review — those are your test cases.`;
+  }
+
+  /**
+   * Build a user prompt that sends the full project source code to the LLM.
+   * Prioritizes structure overview + key files, with as much raw code as fits in context.
+   */
+  function buildProjectUserPrompt(analysis, content, options) {
+    const parts = ['Here is the FULL SOURCE CODE of a project for test case generation:\n'];
+
+    // Source code analysis summary (from Parser.analyzeContent on the combined content)
+    const ca = analysis.codeAnalysis;
+    if (ca && ca.isSourceCode) {
+      parts.push('--- PROJECT CODE SUMMARY ---');
+      parts.push(`Language: ${ca.language}`);
+      if (ca.functions.length > 0) {
+        parts.push(`Functions (${ca.functions.length}): ${ca.functions.slice(0, 80).map(fn => `${fn.isAsync ? 'async ' : ''}${fn.name}(${fn.params.join(', ')})`).join(', ')}`);
+      }
+      if (ca.classes.length > 0) {
+        parts.push(`Classes (${ca.classes.length}): ${ca.classes.slice(0, 30).map(cls => `${cls.name}${cls.extends ? ' extends ' + cls.extends : ''}`).join(', ')}`);
+      }
+      if (ca.apiRoutes.length > 0) {
+        parts.push(`API Routes (${ca.apiRoutes.length}):`);
+        ca.apiRoutes.slice(0, 50).forEach(r => parts.push(`  ${r.method} ${r.path} → ${r.handler}`));
+      }
+      if (ca.imports.length > 0) {
+        parts.push(`Imports/Dependencies: ${ca.imports.slice(0, 40).join(', ')}`);
+      }
+      if (ca.dbOperations.length > 0) {
+        parts.push(`DB Operations: ${ca.dbOperations.slice(0, 30).join(', ')}`);
+      }
+      if (ca.errorHandlers.length > 0) {
+        parts.push(`Error Handlers: ${ca.errorHandlers.slice(0, 20).join(', ')}`);
+      }
+      if (ca.envVars && ca.envVars.length > 0) {
+        parts.push(`Environment Variables: ${ca.envVars.slice(0, 20).join(', ')}`);
+      }
+      parts.push('');
+    }
+
+    // Also include general analysis signals
+    if (analysis.actions.length > 0) parts.push(`Actions detected: ${analysis.actions.join(', ')}`);
+    if (analysis.entities.length > 0) parts.push(`Entities: ${analysis.entities.join(', ')}`);
+    if (analysis.apiEndpoints && analysis.apiEndpoints.length > 0) {
+      parts.push(`API Endpoints: ${analysis.apiEndpoints.slice(0, 30).map(ep => typeof ep === 'object' ? `${ep.method || 'GET'} ${ep.path || ep}` : ep).join(', ')}`);
+    }
+    if (analysis.securityConcerns && analysis.securityConcerns.length > 0) {
+      parts.push(`Security Concerns: ${analysis.securityConcerns.slice(0, 15).join(', ')}`);
+    }
+
+    // Send as much raw project code as possible (up to 100K for large-context models)
+    const maxContent = 100000;
+    const trimmedContent = content.length > maxContent ? content.substring(0, maxContent) + '\n...(truncated — project too large to send in full)' : content;
+    parts.push(`\n--- FULL PROJECT SOURCE CODE ---\n${trimmedContent}`);
+
+    parts.push(`\nAnalyze this entire codebase thoroughly. Generate ${options.testType === 'all' ? 'all types of' : options.testType} test cases at ${options.depth} depth. Reference actual code (function names, file paths, class names) in your test cases. Return ONLY the JSON array.`);
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate test cases from a full project folder via LLM.
+   * Uses the project-specific prompts that send more code context.
+   */
+  async function generateProjectTestCases(analysis, content, options, llmConfig) {
+    const systemPrompt = buildProjectSystemPrompt(options);
+    const userPrompt = buildProjectUserPrompt(analysis, content, options);
+    const responseText = await callLLM(systemPrompt, userPrompt, llmConfig);
+    return parseResponse(responseText);
+  }
+
+  /**
    * Get LLM config from Storage.
    */
   function getConfig() {
@@ -433,6 +540,7 @@ QUALITY REQUIREMENTS:
   return {
     PROVIDERS,
     generateTestCases,
+    generateProjectTestCases,
     getConfig,
     saveConfig,
     parseResponse,

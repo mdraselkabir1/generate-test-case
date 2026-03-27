@@ -334,6 +334,12 @@
 
                 <!-- Project Tab (Folder Picker) -->
                 <div class="tab-content" id="project-tab">
+                  <!-- LLM Required Notice -->
+                  <div id="projectLlmNotice" class="auth-note" style="margin-bottom:1rem; border-left: 3px solid var(--primary);">
+                    <i class="fas fa-robot"></i>
+                    <span><strong>AI/LLM Required</strong> — Project folder analysis uses AI to deeply understand your codebase and generate context-aware test cases. Please configure an API key below (the <strong>Use AI / LLM</strong> toggle will be enabled automatically).</span>
+                  </div>
+
                   <!-- Folder picker button (Chrome/Edge only) -->
                   <div id="folderPickerSection">
                     <button class="btn btn-secondary btn-lg btn-block" id="selectFolderBtn">

@@ -192,6 +192,18 @@
         $$('.tab-content').forEach(c => c.classList.remove('active'));
         btn.classList.add('active');
         $(`#${btn.dataset.tab}`).classList.add('active');
+
+        // Auto-enable LLM when switching to Project tab
+        if (btn.dataset.tab === 'project-tab') {
+          const llmCheckbox = $('#useLLM');
+          if (!llmCheckbox.checked) {
+            llmCheckbox.checked = true;
+            $('#llmQuickConfig').classList.remove('hidden');
+            const cfg = LLM.getConfig();
+            cfg.enabled = true;
+            LLM.saveConfig(cfg);
+          }
+        }
       });
     });
 
@@ -515,6 +527,17 @@
     const llmCfg = LLM.getConfig();
     const useLLM = $('#useLLM').checked && llmCfg.apiKey;
     const llmMode = llmCfg.mode || 'llm-only';
+    const isProject = sourceType === 'project';
+
+    // Project folders REQUIRE LLM — block if not configured
+    if (isProject && !llmCfg.apiKey) {
+      showToast('Project folder analysis requires an AI/LLM provider. Please configure your API key in the AI section below.', 'error');
+      // Auto-open the LLM config UI to guide the user
+      $('#useLLM').checked = true;
+      $('#llmQuickConfig').classList.remove('hidden');
+      LLM.saveConfig({ ...llmCfg, enabled: true });
+      return;
+    }
 
     // Show progress
     const progressCard = $('#progressCard');
@@ -532,7 +555,34 @@
 
       let plan;
 
-      if (useLLM && (llmMode === 'llm-only' || llmMode === 'hybrid')) {
+      if (isProject) {
+        // --- PROJECT FOLDER: always use LLM with project-specific prompts ---
+        await animateProgress('step-generate', 50, `Analyzing full codebase with ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
+
+        try {
+          const llmCases = await LLM.generateProjectTestCases(analysis, content, options, llmCfg);
+
+          llmCases.forEach((tc, i) => { tc.id = `TC-${String(i + 1).padStart(3, '0')}`; });
+          plan = {
+            id: Storage.generateId(),
+            name: (options.planName || `Project: ${sourceRef}`) + ' (AI-Analyzed)',
+            createdAt: new Date().toISOString(),
+            source: sourceType,
+            sourceRef: sourceRef,
+            testType: options.testType,
+            depth: options.depth,
+            testCases: llmCases,
+            summary: { total: llmCases.length, byType: countByField(llmCases, 'type'), byPriority: countByField(llmCases, 'priority') },
+          };
+        } catch (llmErr) {
+          showToast(`AI project analysis failed: ${llmErr.message}`, 'error');
+          progressCard.classList.add('hidden');
+          resetProgress();
+          $('#generateBtn').disabled = false;
+          return;
+        }
+
+      } else if (useLLM && (llmMode === 'llm-only' || llmMode === 'hybrid')) {
         // --- LLM-based generation ---
         await animateProgress('step-generate', 50, `Calling ${LLM.PROVIDERS[llmCfg.provider]?.name || 'AI'}...`);
 
