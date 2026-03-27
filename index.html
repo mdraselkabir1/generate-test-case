@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TestForge — Test Case Generator</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <i class="fas fa-flask"></i>
+          <span>TestForge</span>
+        </div>
+        <button class="sidebar-toggle" id="sidebarToggle">
+          <i class="fas fa-bars"></i>
+        </button>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <i class="fas fa-chart-line"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="generator">
+          <i class="fas fa-magic"></i>
+          <span>Generate Tests</span>
+        </a>
+        <a href="#" class="nav-item" data-page="test-plans">
+          <i class="fas fa-clipboard-list"></i>
+          <span>Test Plans</span>
+        </a>
+        <a href="#" class="nav-item" data-page="test-cases">
+          <i class="fas fa-vial"></i>
+          <span>Test Cases</span>
+        </a>
+        <a href="#" class="nav-item" data-page="history">
+          <i class="fas fa-history"></i>
+          <span>History</span>
+        </a>
+        <a href="#" class="nav-item" data-page="settings">
+          <i class="fas fa-cog"></i>
+          <span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="storage-info">
+          <i class="fas fa-database"></i>
+          <span id="storageCount">0 plans stored</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="mobile-menu-btn" id="mobileMenuBtn">
+            <i class="fas fa-bars"></i>
+          </button>
+          <h1 id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-primary" id="quickGenerate">
+            <i class="fas fa-plus"></i> Quick Generate
+          </button>
+          <div class="theme-toggle" id="themeToggle" title="Toggle theme">
+            <i class="fas fa-moon"></i>
+          </div>
+        </div>
+      </header>
+
+      <!-- Page Container -->
+      <div class="page-container">
+
+        <!-- Dashboard Page -->
+        <section class="page active" id="page-dashboard">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon blue"><i class="fas fa-clipboard-list"></i></div>
+              <div class="stat-info">
+                <h3 id="totalPlans">0</h3>
+                <p>Test Plans</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon green"><i class="fas fa-vial"></i></div>
+              <div class="stat-info">
+                <h3 id="totalCases">0</h3>
+                <p>Test Cases</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon purple"><i class="fas fa-file-alt"></i></div>
+              <div class="stat-info">
+                <h3 id="totalDocs">0</h3>
+                <p>Documents Processed</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon orange"><i class="fas fa-link"></i></div>
+              <div class="stat-info">
+                <h3 id="totalUrls">0</h3>
+                <p>URLs Analyzed</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <div class="card">
+              <div class="card-header">
+                <h2>Recent Test Plans</h2>
+                <a href="#" class="nav-item" data-page="test-plans">View All</a>
+              </div>
+              <div class="card-body" id="recentPlans">
+                <div class="empty-state">
+                  <i class="fas fa-clipboard-list"></i>
+                  <p>No test plans yet. Generate your first one!</p>
+                  <button class="btn btn-primary nav-item" data-page="generator">Get Started</button>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h2>Quick Actions</h2>
+              </div>
+              <div class="card-body">
+                <div class="quick-actions">
+                  <button class="action-btn nav-item" data-page="generator">
+                    <i class="fas fa-file-upload"></i>
+                    <span>Upload Document</span>
+                  </button>
+                  <button class="action-btn nav-item" data-page="generator">
+                    <i class="fas fa-link"></i>
+                    <span>Analyze URL</span>
+                  </button>
+                  <button class="action-btn" id="exportAllBtn">
+                    <i class="fas fa-download"></i>
+                    <span>Export All</span>
+                  </button>
+                  <button class="action-btn" id="clearAllBtn">
+                    <i class="fas fa-trash"></i>
+                    <span>Clear Data</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Generation History</h2>
+            </div>
+            <div class="card-body" id="historyTimeline">
+              <div class="empty-state small">
+                <i class="fas fa-history"></i>
+                <p>No history yet</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Generator Page -->
+        <section class="page" id="page-generator">
+          <div class="generator-layout">
+            <div class="card generator-input">
+              <div class="card-header">
+                <h2>Input Source</h2>
+              </div>
+              <div class="card-body">
+                <div class="input-tabs">
+                  <button class="tab-btn active" data-tab="url-tab">
+                    <i class="fas fa-link"></i> URL
+                  </button>
+                  <button class="tab-btn" data-tab="file-tab">
+                    <i class="fas fa-file-upload"></i> Document
+                  </button>
+                  <button class="tab-btn" data-tab="project-tab">
+                    <i class="fas fa-folder-open"></i> Project
+                  </button>
+                  <button class="tab-btn" data-tab="text-tab">
+                    <i class="fas fa-keyboard"></i> Text
+                  </button>
+                </div>
+
+                <!-- URL Tab -->
+                <div class="tab-content active" id="url-tab">
+                  <div class="form-group">
+                    <label for="urlInput">Enter URL to analyze</label>
+                    <div class="input-with-btn">
+                      <input type="url" id="urlInput" placeholder="https://example.com/requirements" class="form-input">
+                      <button class="btn btn-secondary" id="fetchUrlBtn">
+                        <i class="fas fa-download"></i> Fetch
+                      </button>
+                    </div>
+                    <small class="form-hint">Enter a URL containing requirements, user stories, or feature specifications</small>
+                  </div>
+
+                  <!-- Authentication Toggle -->
+                  <div class="auth-section">
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="authToggle" class="form-checkbox">
+                      <i class="fas fa-lock"></i> URL requires authentication
+                    </label>
+                    <div id="authFields" class="auth-fields hidden">
+                      <div class="form-group">
+                        <label for="authType">Authentication Method</label>
+                        <select id="authType" class="form-input">
+                          <option value="basic">Basic Auth (Username &amp; Password)</option>
+                          <option value="bearer">Bearer Token</option>
+                          <option value="cookie">Session Cookie</option>
+                          <option value="form">Form-Based Login</option>
+                        </select>
+                      </div>
+
+                      <!-- Basic Auth Fields -->
+                      <div class="auth-method-fields" id="authBasicFields">
+                        <div class="form-group">
+                          <label for="authUsername">Username</label>
+                          <input type="text" id="authUsername" class="form-input" placeholder="Enter username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                          <label for="authPassword">Password</label>
+                          <input type="password" id="authPassword" class="form-input" placeholder="Enter password" autocomplete="off">
+                        </div>
+                      </div>
+
+                      <!-- Bearer Token Fields -->
+                      <div class="auth-method-fields hidden" id="authBearerFields">
+                        <div class="form-group">
+                          <label for="authToken">Bearer Token</label>
+                          <input type="password" id="authToken" class="form-input" placeholder="Paste your access/API token" autocomplete="off">
+                        </div>
+                      </div>
+
+                      <!-- Cookie Fields -->
+                      <div class="auth-method-fields hidden" id="authCookieFields">
+                        <div class="form-group">
+                          <label for="authCookie">Session Cookie</label>
+                          <textarea id="authCookie" class="form-input" rows="3" placeholder="Paste cookie string (e.g., sessionid=abc123; csrftoken=xyz)"></textarea>
+                          <small class="form-hint">Open DevTools → Application → Cookies, copy the cookie values from the logged-in session</small>
+                        </div>
+                      </div>
+
+                      <!-- Form Login Fields -->
+                      <div class="auth-method-fields hidden" id="authFormFields">
+                        <div class="form-group">
+                          <label for="authLoginUrl">Login Page URL</label>
+                          <input type="url" id="authLoginUrl" class="form-input" placeholder="https://example.com/login">
+                        </div>
+                        <div class="form-group">
+                          <label for="authFormUsername">Username / Email</label>
+                          <input type="text" id="authFormUsername" class="form-input" placeholder="Enter login username or email" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                          <label for="authFormPassword">Password</label>
+                          <input type="password" id="authFormPassword" class="form-input" placeholder="Enter login password" autocomplete="off">
+                        </div>
+                      </div>
+
+                      <div class="auth-note">
+                        <i class="fas fa-shield-alt"></i>
+                        <span>Credentials are never stored — they are used only for this fetch and discarded immediately.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div id="urlPreview" class="content-preview hidden">
+                    <div class="preview-header">
+                      <span>Fetched Content</span>
+                      <button class="btn-icon" id="clearUrlPreview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="preview-body" id="urlPreviewBody"></div>
+                  </div>
+
+                  <!-- Bookmarklet Helper -->
+                  <div class="bookmarklet-section">
+                    <div class="bookmarklet-header">
+                      <i class="fas fa-magic"></i>
+                      <strong>Can't fetch? Use the Page Grabber bookmarklet</strong>
+                    </div>
+                    <p class="bookmarklet-desc">
+                      Works on <strong>any</strong> authenticated page — OAuth, SSO, MFA, or any login. Drag the button below to your bookmarks bar, 
+                      then click it on any page to grab its content.
+                    </p>
+                    <div class="bookmarklet-actions">
+                      <a id="grabPageBookmarklet" class="btn btn-bookmarklet" href="#" title="Drag this to your bookmarks bar"
+                        onclick="event.preventDefault(); showToast('Drag this button to your bookmarks bar, then click it on any page!', 'info');">
+                        <i class="fas fa-hand-pointer"></i> 📋 Grab Page
+                      </a>
+                      <span class="bookmarklet-hint">← Drag to bookmarks bar</span>
+                    </div>
+                    <details class="bookmarklet-details">
+                      <summary>How does it work?</summary>
+                      <ol>
+                        <li>Drag the <strong>"📋 Grab Page"</strong> button to your browser's bookmarks bar</li>
+                        <li>Navigate to any authenticated page (e.g. Odoo, Jira, Coverity)</li>
+                        <li>Click the bookmarklet in your bookmarks bar</li>
+                        <li>The page content is copied to your clipboard</li>
+                        <li>Come back here, go to <strong>Text Input</strong> tab, and press <strong>Ctrl+V / Cmd+V</strong></li>
+                      </ol>
+                    </details>
+                  </div>
+                </div>
+
+                <!-- File Tab -->
+                <div class="tab-content" id="file-tab">
+                  <div class="upload-zone" id="uploadZone">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Drop your file here</h3>
+                    <p>or click to browse</p>
+                    <small>Supports: Source code (.js, .py, .java, .ts, .go, .rs, .c, .cpp, .rb, .php, etc.), Docs (.docx, .pdf, .txt, .md, .xlsx, .csv), Config (.json, .yaml, .xml, .env)</small>
+                    <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.xlsx,.csv,.doc,.js,.jsx,.ts,.tsx,.mjs,.py,.java,.kt,.c,.h,.cpp,.hpp,.cs,.go,.rs,.swift,.dart,.rb,.php,.sh,.bash,.sql,.graphql,.html,.htm,.css,.scss,.xml,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.proto,.dockerfile,.makefile,.vue,.svelte,.ex,.erl,.hs,.clj,.feature,.spec,.rst,.adoc,.log,.tf,.hcl,.groovy,.scala,.lua,.r,.pl" hidden>
+                  </div>
+                  <div id="filePreview" class="content-preview hidden">
+                    <div class="preview-header">
+                      <span id="fileName">document.docx</span>
+                      <button class="btn-icon" id="clearFilePreview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="preview-body" id="filePreviewBody"></div>
+                  </div>
+                </div>
+
+                <!-- Project Tab (Folder / Zip Upload) -->
+                <div class="tab-content" id="project-tab">
+                  <div class="upload-zone" id="projectUploadZone">
+                    <i class="fas fa-folder-open"></i>
+                    <h3>Upload Project Source Code</h3>
+                    <p>Drop a <strong>.zip file</strong> or click to browse</p>
+                    <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
+                    <input type="file" id="projectZipInput" accept=".zip" hidden>
+                  </div>
+                  <div class="project-upload-options">
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeTests" class="form-checkbox">
+                      <i class="fas fa-vial"></i> Include existing test files in analysis
+                    </label>
+                    <label class="auth-toggle-label">
+                      <input type="checkbox" id="includeDocs" class="form-checkbox" checked>
+                      <i class="fas fa-file-alt"></i> Include documentation files (README, docs/)
+                    </label>
+                  </div>
+                  <div id="projectPreview" class="content-preview hidden">
+                    <div class="preview-header">
+                      <span id="projectName">project.zip</span>
+                      <span id="projectStats" class="project-stats"></span>
+                      <button class="btn-icon" id="clearProjectPreview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="preview-body" id="projectPreviewBody"></div>
+                  </div>
+                </div>
+
+                <!-- Text Tab -->
+                <div class="tab-content" id="text-tab">
+                  <div class="form-group">
+                    <label for="textInput">Paste requirements or feature description</label>
+                    <textarea id="textInput" class="form-input" rows="12"
+                      placeholder="Paste your requirements, user stories, feature specs, or any text describing the functionality to test..."></textarea>
+                  </div>
+                </div>
+
+                <!-- Generation Options -->
+                <div class="generation-options">
+                  <h3>Generation Options</h3>
+                  <div class="options-grid">
+                    <div class="form-group">
+                      <label for="planName">Test Plan Name</label>
+                      <input type="text" id="planName" class="form-input" placeholder="Auto-generated if empty">
+                    </div>
+                    <div class="form-group">
+                      <label for="testType">Test Type Focus</label>
+                      <select id="testType" class="form-input">
+                        <option value="all">All Types</option>
+                        <option value="functional">Functional</option>
+                        <option value="unit">Unit Test</option>
+                        <option value="ui">UI/UX</option>
+                        <option value="api">API</option>
+                        <option value="security">Security</option>
+                        <option value="performance">Performance</option>
+                        <option value="accessibility">Accessibility</option>
+                        <option value="integration">Integration</option>
+                        <option value="data-integrity">Data Integrity</option>
+                        <option value="regression">Regression</option>
+                        <option value="compatibility">Compatibility</option>
+                        <option value="error-recovery">Error Recovery</option>
+                        <option value="edge-cases">Edge Cases</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="priority">Priority Level</label>
+                      <select id="priority" class="form-input">
+                        <option value="all">All Priorities</option>
+                        <option value="critical">Critical</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="depth">Generation Depth</label>
+                      <select id="depth" class="form-input">
+                        <option value="basic">Basic (5-10 cases)</option>
+                        <option value="standard" selected>Standard (10-25 cases)</option>
+                        <option value="comprehensive">Comprehensive (25-50 cases)</option>
+                        <option value="exhaustive">Exhaustive (50+ cases)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- LLM Enhancement Toggle -->
+                  <div class="llm-toggle-section">
+                    <label class="llm-toggle-label">
+                      <input type="checkbox" id="useLLM" class="form-checkbox">
+                      <i class="fas fa-robot"></i> <strong>Use AI / LLM</strong> for enhanced generation
+                    </label>
+                    <div id="llmQuickConfig" class="llm-quick-config hidden">
+                      <div class="options-grid">
+                        <div class="form-group">
+                          <label for="llmProvider">AI Provider</label>
+                          <select id="llmProvider" class="form-input">
+                            <option value="openai">OpenAI (GPT)</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="custom">Custom / Local</option>
+                          </select>
+                        </div>
+                        <div class="form-group">
+                          <label for="llmModel">Model</label>
+                          <select id="llmModel" class="form-input">
+                          </select>
+                        </div>
+                        <div class="form-group">
+                          <label for="llmApiKey">API Key</label>
+                          <input type="password" id="llmApiKey" class="form-input" placeholder="sk-... or paste your key" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                          <label for="llmMode">Generation Mode</label>
+                          <select id="llmMode" class="form-input">
+                            <option value="llm-only">LLM Only — AI generates all test cases</option>
+                            <option value="hybrid">Hybrid — rule-based + AI combined</option>
+                            <option value="enhance">Enhance — AI refines rule-based output</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div id="llmCustomEndpoint" class="form-group hidden">
+                        <label for="llmEndpoint">Custom API Endpoint</label>
+                        <input type="url" id="llmEndpoint" class="form-input" placeholder="http://localhost:11434/v1/chat/completions">
+                        <small class="form-hint">For Ollama, LM Studio, or any OpenAI-compatible API</small>
+                      </div>
+                      <div class="llm-note">
+                        <i class="fas fa-shield-alt"></i>
+                        <span>API keys are stored locally in your browser only. Keys are sent directly to the provider — never through our servers.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button class="btn btn-primary btn-lg btn-block" id="generateBtn">
+                  <i class="fas fa-magic"></i> Generate Test Cases
+                </button>
+              </div>
+            </div>
+
+            <!-- Generation Progress -->
+            <div class="card generator-progress hidden" id="progressCard">
+              <div class="card-header">
+                <h2>Generating...</h2>
+              </div>
+              <div class="card-body">
+                <div class="progress-steps">
+                  <div class="progress-step active" id="step-parse">
+                    <div class="step-icon"><i class="fas fa-file-alt"></i></div>
+                    <span>Parsing Content</span>
+                  </div>
+                  <div class="progress-step" id="step-analyze">
+                    <div class="step-icon"><i class="fas fa-search"></i></div>
+                    <span>Analyzing Requirements</span>
+                  </div>
+                  <div class="progress-step" id="step-generate">
+                    <div class="step-icon"><i class="fas fa-cogs"></i></div>
+                    <span>Generating Test Cases</span>
+                  </div>
+                  <div class="progress-step" id="step-review">
+                    <div class="step-icon"><i class="fas fa-check-circle"></i></div>
+                    <span>Review & Organize</span>
+                  </div>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-text" id="progressText">Starting...</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Test Plans Page -->
+        <section class="page" id="page-test-plans">
+          <div class="page-actions">
+            <div class="search-box">
+              <i class="fas fa-search"></i>
+              <input type="text" id="searchPlans" placeholder="Search test plans..." class="form-input">
+            </div>
+            <button class="btn btn-primary nav-item" data-page="generator">
+              <i class="fas fa-plus"></i> New Plan
+            </button>
+          </div>
+          <div id="testPlansList" class="plans-list">
+            <div class="empty-state">
+              <i class="fas fa-clipboard-list"></i>
+              <p>No test plans created yet</p>
+              <button class="btn btn-primary nav-item" data-page="generator">Create First Plan</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Test Cases Page -->
+        <section class="page" id="page-test-cases">
+          <div class="page-actions">
+            <div class="search-box">
+              <i class="fas fa-search"></i>
+              <input type="text" id="searchCases" placeholder="Search test cases..." class="form-input">
+            </div>
+            <div class="filter-group">
+              <select id="filterPlan" class="form-input">
+                <option value="">All Plans</option>
+              </select>
+              <select id="filterType" class="form-input">
+                <option value="">All Types</option>
+                <option value="functional">Functional</option>
+                <option value="ui">UI/UX</option>
+                <option value="api">API</option>
+                <option value="security">Security</option>
+                <option value="performance">Performance</option>
+                <option value="accessibility">Accessibility</option>
+                <option value="integration">Integration</option>
+                <option value="data-integrity">Data Integrity</option>
+                <option value="regression">Regression</option>
+                <option value="compatibility">Compatibility</option>
+                <option value="error-recovery">Error Recovery</option>
+                <option value="edge-cases">Edge Cases</option>
+              </select>
+              <select id="filterPriority" class="form-input">
+                <option value="">All Priorities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+          <div id="testCasesList" class="cases-list">
+            <div class="empty-state">
+              <i class="fas fa-vial"></i>
+              <p>No test cases generated yet</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- History Page -->
+        <section class="page" id="page-history">
+          <div class="page-actions">
+            <h2>Generation History</h2>
+            <button class="btn btn-danger" id="clearHistoryBtn">
+              <i class="fas fa-trash"></i> Clear History
+            </button>
+          </div>
+          <div id="fullHistory" class="history-list">
+            <div class="empty-state">
+              <i class="fas fa-history"></i>
+              <p>No generation history yet</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings Page -->
+        <section class="page" id="page-settings">
+          <div class="settings-layout">
+            <div class="card">
+              <div class="card-header"><h2>General Settings</h2></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label for="defaultDepth">Default Generation Depth</label>
+                  <select id="defaultDepth" class="form-input">
+                    <option value="basic">Basic</option>
+                    <option value="standard" selected>Standard</option>
+                    <option value="comprehensive">Comprehensive</option>
+                    <option value="exhaustive">Exhaustive</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="defaultType">Default Test Type</label>
+                  <select id="defaultType" class="form-input">
+                    <option value="all" selected>All Types</option>
+                    <option value="functional">Functional</option>
+                    <option value="ui">UI/UX</option>
+                    <option value="api">API</option>
+                    <option value="security">Security</option>
+                    <option value="performance">Performance</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>
+                    <input type="checkbox" id="autoExport" class="form-checkbox"> Auto-export after generation
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2>Export Settings</h2></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label for="exportFormat">Default Export Format</label>
+                  <select id="exportFormat" class="form-input">
+                    <option value="csv">CSV</option>
+                    <option value="json">JSON</option>
+                    <option value="markdown" selected>Markdown</option>
+                    <option value="html">HTML Report</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2>CORS Proxy (for URL fetching)</h2></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label for="corsProxy">CORS Proxy URL</label>
+                  <input type="url" id="corsProxy" class="form-input"
+                    placeholder="https://api.allorigins.win/raw?url="
+                    value="https://api.allorigins.win/raw?url=">
+                  <small class="form-hint">Used to bypass CORS restrictions when fetching URLs. Leave default or change to your own proxy.</small>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2>AI / LLM Settings</h2></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label for="settingsLlmProvider">Default AI Provider</label>
+                  <select id="settingsLlmProvider" class="form-input">
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="google">Google (Gemini)</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="custom">Custom / Local</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmModel">Default Model</label>
+                  <select id="settingsLlmModel" class="form-input"></select>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmApiKey">API Key</label>
+                  <input type="password" id="settingsLlmApiKey" class="form-input" placeholder="sk-..." autocomplete="off">
+                  <small class="form-hint">Stored locally in your browser. Sent directly to the provider.</small>
+                </div>
+                <div class="form-group">
+                  <label for="settingsLlmMode">Default Generation Mode</label>
+                  <select id="settingsLlmMode" class="form-input">
+                    <option value="llm-only">LLM Only — AI generates all test cases</option>
+                    <option value="hybrid">Hybrid — rule-based + AI combined</option>
+                    <option value="enhance">Enhance — AI refines rule-based output</option>
+                  </select>
+                </div>
+                <div class="form-group" id="settingsCustomEndpointGroup" style="display:none">
+                  <label for="settingsLlmEndpoint">Custom API Endpoint</label>
+                  <input type="url" id="settingsLlmEndpoint" class="form-input" placeholder="http://localhost:11434/v1/chat/completions">
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2>Data Management</h2></div>
+              <div class="card-body">
+                <div class="btn-group">
+                  <button class="btn btn-secondary" id="exportDataBtn">
+                    <i class="fas fa-download"></i> Export All Data
+                  </button>
+                  <button class="btn btn-secondary" id="importDataBtn">
+                    <i class="fas fa-upload"></i> Import Data
+                  </button>
+                  <input type="file" id="importFileInput" accept=".json" hidden>
+                  <button class="btn btn-danger" id="clearDataBtn">
+                    <i class="fas fa-trash"></i> Clear All Data
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Test Plan Detail Modal -->
+  <div class="modal" id="planDetailModal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2 id="modalPlanName">Test Plan</h2>
+        <button class="btn-icon modal-close"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body" id="modalPlanBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modalExportBtn">
+          <i class="fas fa-download"></i> Export
+        </button>
+        <button class="btn btn-danger" id="modalDeleteBtn">
+          <i class="fas fa-trash"></i> Delete
+        </button>
+        <button class="btn btn-primary modal-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/llm.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
