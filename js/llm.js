@@ -53,7 +53,7 @@ RULES:
 - "type" must be one of: functional, unit, ui, api, security, performance, accessibility, integration, edge-cases, data-integrity, regression, compatibility, error-recovery
 - "priority" must be one of: critical, high, medium, low
 - Generate ${options.depth === 'basic' ? '5-10' : options.depth === 'standard' ? '10-25' : options.depth === 'comprehensive' ? '25-50' : '50-100'} test cases.
-- Focus on ${options.testType === 'all' ? 'all test types balanced' : options.testType + ' testing'}.
+- Focus on ${(Array.isArray(options.testType) ? options.testType : [options.testType]).includes('all') ? 'all test types balanced' : (Array.isArray(options.testType) ? options.testType : [options.testType]).join(', ') + ' testing'}.
 
 QUALITY REQUIREMENTS:
 - Steps must be specific and actionable — use real field names, button labels, URLs, values from the content.
@@ -218,7 +218,7 @@ QUALITY REQUIREMENTS:
     const trimmedContent = content.length > maxContent ? content.substring(0, maxContent) + '\n...(truncated)' : content;
     parts.push(`\n--- RAW CONTENT ---\n${trimmedContent}`);
 
-    parts.push(`\nGenerate ${options.testType === 'all' ? 'all types of' : options.testType} test cases at ${options.depth} depth. Return ONLY the JSON array.`);
+    parts.push(`\nGenerate ${(Array.isArray(options.testType) ? options.testType : [options.testType]).includes('all') ? 'all types of' : (Array.isArray(options.testType) ? options.testType : [options.testType]).join(', ')} test cases at ${options.depth} depth. Return ONLY the JSON array.`);
 
     return parts.join('\n');
   }
@@ -429,7 +429,7 @@ RULES:
 - "type" must be one of: functional, unit, ui, api, security, performance, accessibility, integration, edge-cases, data-integrity, regression, compatibility, error-recovery
 - "priority" must be one of: critical, high, medium, low
 - Generate ${options.depth === 'basic' ? '10-20' : options.depth === 'standard' ? '20-40' : options.depth === 'comprehensive' ? '40-80' : '80-150'} test cases.
-- Focus on ${options.testType === 'all' ? 'all test types balanced' : options.testType + ' testing'}.
+- Focus on ${(Array.isArray(options.testType) ? options.testType : [options.testType]).includes('all') ? 'all test types balanced' : (Array.isArray(options.testType) ? options.testType : [options.testType]).join(', ') + ' testing'}.
 
 QUALITY REQUIREMENTS:
 - Reference actual function names, class names, file paths, variable names, and API routes from the code.
@@ -497,7 +497,7 @@ QUALITY REQUIREMENTS:
     const trimmedContent = content.length > maxContent ? content.substring(0, maxContent) + '\n...(truncated — project too large to send in full)' : content;
     parts.push(`\n--- FULL PROJECT SOURCE CODE ---\n${trimmedContent}`);
 
-    parts.push(`\nAnalyze this entire codebase thoroughly. Generate ${options.testType === 'all' ? 'all types of' : options.testType} test cases at ${options.depth} depth. Reference actual code (function names, file paths, class names) in your test cases. Return ONLY the JSON array.`);
+    parts.push(`\nAnalyze this entire codebase thoroughly. Generate ${(Array.isArray(options.testType) ? options.testType : [options.testType]).includes('all') ? 'all types of' : (Array.isArray(options.testType) ? options.testType : [options.testType]).join(', ')} test cases at ${options.depth} depth. Reference actual code (function names, file paths, class names) in your test cases. Return ONLY the JSON array.`);
 
     return parts.join('\n');
   }

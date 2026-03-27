@@ -17,6 +17,8 @@ const Generator = (() => {
    */
   function generateTestPlan(analysis, options) {
     const { testType, priority, depth, planName } = options;
+    const types = Array.isArray(testType) ? testType : [testType];
+    const matchesType = (t) => types.includes('all') || types.includes(t);
     const depthConfig = DEPTH_MAP[depth] || DEPTH_MAP.standard;
 
     const id = Storage.generateId();
@@ -24,49 +26,49 @@ const Generator = (() => {
     const testCases = [];
 
     // --- Generate functional test cases ---
-    if (testType === 'all' || testType === 'functional') {
+    if (matchesType('functional')) {
       testCases.push(...generateFunctionalCases(analysis, depthConfig));
     }
 
     // --- Generate UI/UX test cases ---
-    if (testType === 'all' || testType === 'ui') {
+    if (matchesType('ui')) {
       testCases.push(...generateUICases(analysis, depthConfig));
     }
 
     // --- Generate API test cases ---
-    if (testType === 'all' || testType === 'api') {
+    if (matchesType('api')) {
       testCases.push(...generateAPICases(analysis, depthConfig));
     }
 
     // --- Generate security test cases ---
-    if (testType === 'all' || testType === 'security') {
+    if (matchesType('security')) {
       testCases.push(...generateSecurityCases(analysis, depthConfig));
     }
 
     // --- Generate performance test cases ---
-    if (testType === 'all' || testType === 'performance') {
+    if (matchesType('performance')) {
       testCases.push(...generatePerformanceCases(analysis, depthConfig));
     }
 
     // --- Generate accessibility test cases ---
-    if (testType === 'all' || testType === 'accessibility') {
+    if (matchesType('accessibility')) {
       testCases.push(...generateAccessibilityCases(analysis, depthConfig));
     }
 
     // --- Generate edge case tests ---
-    if ((testType === 'all' || testType === 'edge-cases') && depthConfig.edgeCases) {
+    if (matchesType('edge-cases') && depthConfig.edgeCases) {
       testCases.push(...generateEdgeCases(analysis, depthConfig));
     }
 
     // --- Generate unit test cases from source code ---
-    if (testType === 'all' || testType === 'unit') {
+    if (matchesType('unit')) {
       if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
         testCases.push(...generateUnitTestCases(analysis, depthConfig));
       }
     }
 
     // --- Generate integration test cases from source code ---
-    if (testType === 'all' || testType === 'integration') {
+    if (matchesType('integration')) {
       if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
         testCases.push(...generateCodeIntegrationCases(analysis, depthConfig));
       }
@@ -84,9 +86,9 @@ const Generator = (() => {
 
     // --- Expert depth: methodology-driven generation ---
     if (depth === 'expert' && typeof METHODOLOGY !== 'undefined') {
-      const typesToGenerate = testType === 'all'
+      const typesToGenerate = types.includes('all')
         ? METHODOLOGY.map(e => e.id)
-        : [testType];
+        : types;
 
       for (const typeId of typesToGenerate) {
         const entry = METHODOLOGY.find(e => e.id === typeId);

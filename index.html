@@ -405,24 +405,60 @@
                       <input type="text" id="planName" class="form-input" placeholder="Auto-generated if empty">
                     </div>
                     <div class="form-group">
-                      <label for="testType">Test Type Focus</label>
-                      <select id="testType" class="form-input">
-                        <option value="all">All Types</option>
-                        <option value="functional">Functional</option>
-                        <option value="unit">Unit Test</option>
-                        <option value="ui">UI/UX</option>
-                        <option value="api">API</option>
-                        <option value="security">Security</option>
-                        <option value="performance">Performance</option>
-                        <option value="accessibility">Accessibility</option>
-                        <option value="integration">Integration</option>
-                        <option value="data-integrity">Data Integrity</option>
-                        <option value="regression">Regression</option>
-                        <option value="compatibility">Compatibility</option>
-                        <option value="error-recovery">Error Recovery</option>
-                        <option value="edge-cases">Edge Cases</option>
-                        <option value="exploratory">Exploratory</option>
-                      </select>
+                      <label>Test Type Focus</label>
+                      <div class="multi-select-wrapper" id="testTypeWrapper">
+                        <div class="multi-select-toggle form-input" id="testTypeToggle">
+                          <span class="multi-select-text">All Types</span>
+                          <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown" id="testTypeDropdown">
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="all" checked> All Types
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="functional"> Functional
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="unit"> Unit Test
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="ui"> UI/UX
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="api"> API
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="security"> Security
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="performance"> Performance
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="accessibility"> Accessibility
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="integration"> Integration
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="data-integrity"> Data Integrity
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="regression"> Regression
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="compatibility"> Compatibility
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="error-recovery"> Error Recovery
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="edge-cases"> Edge Cases
+                          </label>
+                          <label class="multi-select-option">
+                            <input type="checkbox" value="exploratory"> Exploratory
+                          </label>
+                        </div>
+                      </div>
                     </div>
                     <div class="form-group">
                       <label for="priority">Priority Level</label>

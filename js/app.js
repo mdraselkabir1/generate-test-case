@@ -148,7 +148,7 @@
           <div class="plan-meta">
             <span><i class="fas fa-vial"></i> ${plan.testCases.length} cases</span>
             <span><i class="fas fa-clock"></i> ${timeAgo(plan.createdAt)}</span>
-            <span><i class="fas fa-tag"></i> ${plan.testType}</span>
+            <span><i class="fas fa-tag"></i> ${formatTestType(plan.testType)}</span>
           </div>
         </div>
         <div class="plan-actions">
@@ -254,8 +254,73 @@
     // Project folder picker
     bindProjectFolder();
 
+    // Multi-select test type
+    bindTestTypeMultiSelect();
+
     // Generate button
     $('#generateBtn').addEventListener('click', startGeneration);
+  }
+
+  // ============================================================
+  // Test Type Multi-Select
+  // ============================================================
+  function bindTestTypeMultiSelect() {
+    const wrapper = $('#testTypeWrapper');
+    const toggle = $('#testTypeToggle');
+    const dropdown = $('#testTypeDropdown');
+    const checkboxes = $$('input[type="checkbox"]', dropdown);
+    const allCheckbox = checkboxes.find(cb => cb.value === 'all');
+    const typeCheckboxes = checkboxes.filter(cb => cb.value !== 'all');
+
+    toggle.addEventListener('click', () => {
+      wrapper.classList.toggle('open');
+    });
+
+    // Close on outside click
+    document.addEventListener('click', e => {
+      if (!wrapper.contains(e.target)) wrapper.classList.remove('open');
+    });
+
+    // "All Types" toggles everything
+    allCheckbox.addEventListener('change', () => {
+      if (allCheckbox.checked) {
+        typeCheckboxes.forEach(cb => cb.checked = false);
+      }
+      updateTestTypeLabel();
+    });
+
+    // Individual type checkboxes
+    typeCheckboxes.forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          allCheckbox.checked = false;
+        }
+        // If none selected, revert to "All"
+        if (!typeCheckboxes.some(c => c.checked)) {
+          allCheckbox.checked = true;
+        }
+        updateTestTypeLabel();
+      });
+    });
+  }
+
+  function getSelectedTestTypes() {
+    const dropdown = $('#testTypeDropdown');
+    const checkboxes = $$('input[type="checkbox"]:checked', dropdown);
+    return checkboxes.map(cb => cb.value);
+  }
+
+  function updateTestTypeLabel() {
+    const selected = getSelectedTestTypes();
+    const textEl = $('#testTypeToggle .multi-select-text');
+    if (selected.includes('all')) {
+      textEl.textContent = 'All Types';
+    } else if (selected.length === 1) {
+      const label = selected[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      textEl.textContent = label;
+    } else {
+      textEl.textContent = `${selected.length} types selected`;
+    }
   }
 
   // ============================================================
@@ -516,7 +581,7 @@
 
     const options = {
       planName: $('#planName').value.trim(),
-      testType: $('#testType').value,
+      testType: getSelectedTestTypes(),
       priority: $('#priority').value,
       depth: $('#depth').value,
       sourceType,
@@ -759,7 +824,7 @@
           <div class="plan-meta">
             <span><i class="fas fa-vial"></i> ${plan.testCases.length} cases</span>
             <span><i class="fas fa-clock"></i> ${timeAgo(plan.createdAt)}</span>
-            <span><i class="fas fa-tag"></i> ${plan.testType}</span>
+            <span><i class="fas fa-tag"></i> ${formatTestType(plan.testType)}</span>
             <span><i class="fas fa-layer-group"></i> ${plan.depth}</span>
             <span><i class="fas fa-${plan.source === 'url' ? 'link' : plan.source === 'file' ? 'file-alt' : plan.source === 'project' ? 'folder-open' : 'keyboard'}"></i> ${plan.source}</span>
           </div>
@@ -1200,6 +1265,13 @@
   // ============================================================
   // Utilities
   // ============================================================
+  function formatTestType(testType) {
+    if (!testType) return 'All Types';
+    const types = Array.isArray(testType) ? testType : [testType];
+    if (types.includes('all')) return 'All Types';
+    return types.map(t => t.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())).join(', ');
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
     const div = document.createElement('div');
