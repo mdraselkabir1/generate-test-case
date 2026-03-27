@@ -268,7 +268,7 @@
     }
 
     // Arrow key navigation inside the sidebar
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && sidebar.contains(document.activeElement)) {
       const items = Array.from(sidebar.querySelectorAll('.guide-sidebar-item'));
       if (!items.length) return;
       const current = items.findIndex(i => i.dataset.id === currentId);
