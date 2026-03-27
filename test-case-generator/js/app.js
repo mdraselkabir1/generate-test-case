@@ -239,29 +239,8 @@
       $('#fileInput').value = '';
     });
 
-    // Project (zip) upload
-    const projectZone = $('#projectUploadZone');
-    const projectInput = $('#projectZipInput');
-    if (projectZone && projectInput) {
-      projectZone.addEventListener('click', () => projectInput.click());
-      projectZone.addEventListener('dragover', e => { e.preventDefault(); projectZone.classList.add('dragover'); });
-      projectZone.addEventListener('dragleave', () => projectZone.classList.remove('dragover'));
-      projectZone.addEventListener('drop', e => {
-        e.preventDefault();
-        projectZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleProjectZip(e.dataTransfer.files[0]);
-      });
-      projectInput.addEventListener('change', () => {
-        if (projectInput.files.length) handleProjectZip(projectInput.files[0]);
-      });
-      $('#clearProjectPreview').addEventListener('click', () => {
-        $('#projectPreview').classList.add('hidden');
-        $('#projectPreviewBody').textContent = '';
-        $('#projectStats').textContent = '';
-        parsedContent = '';
-        projectInput.value = '';
-      });
-    }
+    // Project folder picker
+    bindProjectFolder();
 
     // Generate button
     $('#generateBtn').addEventListener('click', startGeneration);
@@ -485,67 +464,6 @@
     }
   }
 
-  async function handleProjectZip(file) {
-    const maxSize = 3 * 1024 * 1024 * 1024; // 3GB for zip
-    if (file.size > maxSize) {
-      showToast('Zip file too large (max 50MB)', 'error');
-      return;
-    }
-    if (!file.name.endsWith('.zip')) {
-      showToast('Please upload a .zip file', 'error');
-      return;
-    }
-
-    const zone = $('#projectUploadZone');
-    zone.innerHTML = '<i class="fas fa-spinner fa-spin"></i><h3>Extracting project files...</h3><p>This may take a moment for large projects</p>';
-
-    try {
-      const includeTests = $('#includeTests').checked;
-      const includeDocs = $('#includeDocs').checked;
-      const result = await Parser.parseProjectZip(file, { includeTests, includeDocs });
-
-      parsedContent = result.text;
-      $('#projectName').textContent = file.name;
-
-      // Build stats display
-      const langList = Object.entries(result.stats.byLanguage)
-        .sort((a, b) => b[1] - a[1])
-        .map(([lang, count]) => `${lang}: ${count}`)
-        .join(', ');
-      $('#projectStats').textContent = `${result.stats.parsedFiles} files parsed (${result.stats.byType.code} code, ${result.stats.byType.doc} docs)`;
-
-      // Build preview
-      const preview = [
-        `Project: ${file.name}`,
-        `Files: ${result.stats.parsedFiles} of ${result.stats.totalFiles} total`,
-        `Languages: ${langList}`,
-        result.stats.skippedLarge > 0 ? `(${result.stats.skippedLarge} files truncated due to size)` : '',
-        '',
-        '--- Content Preview ---',
-        result.text.substring(0, 8000),
-        result.text.length > 8000 ? '\n\n... (truncated preview — full content will be analyzed)' : '',
-      ].filter(Boolean).join('\n');
-
-      $('#projectPreview').classList.remove('hidden');
-      $('#projectPreviewBody').textContent = preview;
-      showToast(`Project "${file.name}" extracted: ${result.stats.parsedFiles} files (${langList})`, 'success');
-    } catch (err) {
-      showToast(`Failed to parse project: ${err.message}`, 'error');
-    } finally {
-      // Restore upload zone
-      zone.innerHTML = `
-        <i class="fas fa-folder-open"></i>
-        <h3>Upload Project Source Code</h3>
-        <p>Drop a <strong>.zip file</strong> or click to browse</p>
-        <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
-        <input type="file" id="projectZipInput" accept=".zip" hidden>`;
-      // Re-bind the new input
-      const newInput = $('#projectZipInput');
-      newInput.addEventListener('change', () => {
-        if (newInput.files.length) handleProjectZip(newInput.files[0]);
-      });
-    }
-  }
 
   async function startGeneration() {
     // Determine content
@@ -569,9 +487,9 @@
     } else if (activeTab === 'project-tab') {
       content = parsedContent || '';
       sourceType = 'project';
-      sourceRef = $('#projectName').textContent || 'project.zip';
+      sourceRef = $('#projectName').textContent || 'local folder';
       if (!content) {
-        showToast('Please upload a project zip file first', 'warning');
+        showToast('Please select a project folder first', 'warning');
         return;
       }
     } else {
@@ -793,7 +711,7 @@
             <span><i class="fas fa-clock"></i> ${timeAgo(plan.createdAt)}</span>
             <span><i class="fas fa-tag"></i> ${plan.testType}</span>
             <span><i class="fas fa-layer-group"></i> ${plan.depth}</span>
-            <span><i class="fas fa-${plan.source === 'url' ? 'link' : plan.source === 'file' ? 'file-alt' : 'keyboard'}"></i> ${plan.source}</span>
+            <span><i class="fas fa-${plan.source === 'url' ? 'link' : plan.source === 'file' ? 'file-alt' : plan.source === 'project' ? 'folder-open' : 'keyboard'}"></i> ${plan.source}</span>
           </div>
         </div>
         <div class="plan-actions">
@@ -947,8 +865,8 @@
   }
 
   function renderHistoryItem(h) {
-    const iconClass = h.sourceType === 'url' ? 'url' : h.sourceType === 'file' ? 'file' : 'text';
-    const iconName = h.sourceType === 'url' ? 'fa-link' : h.sourceType === 'file' ? 'fa-file-alt' : 'fa-keyboard';
+    const iconClass = h.sourceType === 'url' ? 'url' : h.sourceType === 'file' ? 'file' : h.sourceType === 'project' ? 'project' : 'text';
+    const iconName = h.sourceType === 'url' ? 'fa-link' : h.sourceType === 'file' ? 'fa-file-alt' : h.sourceType === 'project' ? 'fa-folder-open' : 'fa-keyboard';
     return `
       <div class="history-item">
         <div class="history-icon ${iconClass}"><i class="fas ${iconName}"></i></div>
@@ -1246,6 +1164,262 @@
     if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
     if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
     return new Date(dateStr).toLocaleDateString();
+  }
+
+  // ============================================================
+  // Project Folder Picker
+  // ============================================================
+
+  function bindProjectFolder() {
+    const btn = $('#selectFolderBtn');
+    const dropZone = $('#projectDropZone');
+    const fallbackNote = $('#folderPickerFallbackNote');
+    const pickerSection = $('#folderPickerSection');
+
+    // Feature-detect File System Access API
+    if (typeof window.showDirectoryPicker !== 'function') {
+      if (pickerSection) pickerSection.classList.add('hidden');
+      if (fallbackNote) fallbackNote.classList.remove('hidden');
+    }
+
+    // Button click → showDirectoryPicker
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        if (typeof window.showDirectoryPicker !== 'function') return;
+        try {
+          const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+          await handleProjectFolder(dirHandle);
+        } catch (err) {
+          if (err.name === 'AbortError') return; // user cancelled
+          if (err.name === 'NotAllowedError') {
+            showToast('Folder access denied. Please allow access when prompted.', 'error');
+            return;
+          }
+          showToast(`Failed to open folder: ${err.message}`, 'error');
+        }
+      });
+    }
+
+    // Drag-and-drop
+    if (dropZone) {
+      dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+      dropZone.addEventListener('drop', async e => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const item = e.dataTransfer.items && e.dataTransfer.items[0];
+        if (!item) return;
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (!entry) {
+          showToast('Unable to read dropped item', 'error');
+          return;
+        }
+        if (!entry.isDirectory) {
+          showToast('Please drop a folder, not a file', 'warning');
+          return;
+        }
+        try {
+          await handleProjectFolderEntry(entry);
+        } catch (err) {
+          showToast(`Failed to read folder: ${err.message}`, 'error');
+        }
+      });
+    }
+
+    // Clear button
+    const clearBtn = $('#clearProjectPreview');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        $('#projectPreview').classList.add('hidden');
+        $('#projectPreviewBody').textContent = '';
+        $('#projectStats').textContent = '';
+        $('#projectName').textContent = 'No folder selected';
+        parsedContent = '';
+      });
+    }
+  }
+
+  /**
+   * Walk a FileSystemDirectoryHandle recursively (File System Access API).
+   * Returns array of { name, path, file: File }.
+   */
+  async function walkDirectoryHandle(dirHandle, basePath = '') {
+    const results = [];
+    // Use .entries() for correct [name, handle] destructuring
+    for await (const [name, handle] of dirHandle.entries()) {
+      const path = basePath ? `${basePath}/${name}` : name;
+      if (handle.kind === 'directory') {
+        try {
+          const children = await walkDirectoryHandle(handle, path);
+          results.push(...children);
+        } catch {
+          // Skip directories that cannot be traversed (permission denied, etc.)
+        }
+      } else {
+        try {
+          results.push({ name, path, file: await handle.getFile() });
+        } catch {
+          // Skip files that cannot be read (permissions, locked files, etc.)
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Walk a FileSystemDirectoryEntry recursively (legacy drag-and-drop API).
+   * Returns array of { name, path, file: File }.
+   */
+  async function walkDirectoryEntry(dirEntry, basePath = '') {
+    const results = [];
+    const reader = dirEntry.createReader();
+
+    // readEntries is paginated (max 100 per call) — loop until empty
+    async function readAllEntries() {
+      const entries = [];
+      let batch;
+      do {
+        batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        entries.push(...batch);
+      } while (batch.length > 0);
+      return entries;
+    }
+
+    const entries = await readAllEntries();
+    for (const entry of entries) {
+      const path = basePath ? `${basePath}/${entry.name}` : entry.name;
+      if (entry.isDirectory) {
+        try {
+          const children = await walkDirectoryEntry(entry, path);
+          results.push(...children);
+        } catch {
+          // Skip directories that cannot be traversed (permission denied, etc.)
+        }
+      } else {
+        try {
+          const file = await new Promise((res, rej) => entry.file(res, rej));
+          results.push({ name: entry.name, path, file });
+        } catch {
+          // Skip files that cannot be read (permissions, locked files, etc.)
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Shared processing: cap, read to text, call parser, render preview.
+   * folderName: display name for the folder
+   * allHandles: array of { name, path, file: File } — full unsorted list
+   */
+  async function processProjectHandles(folderName, allHandles) {
+    const btn = $('#selectFolderBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading folder\u2026'; }
+
+    const MAX_FILES = 500;
+
+    try {
+      const totalFiles = allHandles.length;
+
+      if (totalFiles === 0) {
+        showToast('No files found in this folder', 'warning');
+        return;
+      }
+
+      // Sort code files first (then docs), alphabetical — so the cap preserves the most
+      // important files when projects exceed MAX_FILES. The parser will re-sort the filtered
+      // list using its own extension sets, which is a stable no-op for already-sorted input.
+      const DOC_EXTS = new Set(['md', 'mdx', 'rst', 'adoc', 'txt', 'rtf', 'log', 'feature', 'story', 'spec']);
+      allHandles.sort((a, b) => {
+        const extA = a.path.split('.').pop().toLowerCase();
+        const extB = b.path.split('.').pop().toLowerCase();
+        const aIsDoc = DOC_EXTS.has(extA);
+        const bIsDoc = DOC_EXTS.has(extB);
+        if (aIsDoc !== bIsDoc) return aIsDoc ? 1 : -1; // code first
+        return a.path.localeCompare(b.path);
+      });
+      const capped = allHandles.slice(0, MAX_FILES);
+
+      if (totalFiles > MAX_FILES) {
+        showToast(`Large project detected — only the first ${MAX_FILES} files will be analyzed`, 'warning');
+      }
+
+      // Read each file to text with per-file error isolation
+      let skippedErrors = 0;
+      const files = [];
+      for (const { name, path, file } of capped) {
+        try {
+          const text = await file.text();
+          files.push({ name, path, text });
+        } catch {
+          skippedErrors++;
+        }
+      }
+
+      if (files.length === 0) {
+        showToast('Could not read any files from this folder', 'error');
+        return;
+      }
+
+      const includeTests = $('#includeTests').checked;
+      const includeDocs = $('#includeDocs').checked;
+
+      const result = await Parser.parseProjectFolder(files, { includeTests, includeDocs });
+
+      // Patch stats fields that only app.js knows
+      result.stats.totalFiles = totalFiles;
+      result.stats.skippedErrors = skippedErrors;
+
+      parsedContent = result.text;
+      $('#projectName').textContent = folderName;
+
+      const langList = Object.entries(result.stats.byLanguage)
+        .sort((a, b) => b[1] - a[1])
+        .map(([lang, count]) => `${lang}: ${count}`)
+        .join(', ');
+      $('#projectStats').textContent = `${result.stats.parsedFiles} files parsed (${result.stats.byType.code} code, ${result.stats.byType.doc} docs)`;
+
+      const preview = [
+        `Folder: ${folderName}`,
+        `Files: ${result.stats.parsedFiles} of ${totalFiles} total`,
+        langList ? `Languages: ${langList}` : '',
+        result.stats.skippedLarge > 0 ? `(${result.stats.skippedLarge} files truncated due to size)` : '',
+        result.stats.skippedErrors > 0 ? `(${result.stats.skippedErrors} files could not be read)` : '',
+        '',
+        '--- Content Preview ---',
+        result.text.substring(0, 8000),
+        result.text.length > 8000 ? '\n\n... (truncated preview \u2014 full content will be analyzed)' : '',
+      ].filter(Boolean).join('\n');
+
+      $('#projectPreview').classList.remove('hidden');
+      $('#projectPreviewBody').textContent = preview;
+      showToast(`Folder "${folderName}" read: ${result.stats.parsedFiles} files (${langList || 'no languages detected'})`, 'success');
+
+    } catch (err) {
+      showToast(`Failed to read project: ${err.message}`, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-folder-open"></i> Select Project Folder'; }
+    }
+  }
+
+  /**
+   * Handle a FileSystemDirectoryHandle (File System Access API button path).
+   */
+  async function handleProjectFolder(dirHandle) {
+    const allHandles = await walkDirectoryHandle(dirHandle);
+    await processProjectHandles(dirHandle.name, allHandles);
+  }
+
+  /**
+   * Handle a FileSystemDirectoryEntry (drag-and-drop fallback path).
+   */
+  async function handleProjectFolderEntry(entry) {
+    const allHandles = await walkDirectoryEntry(entry);
+    // entry.name is the folder name; entry.fullPath starts with "/"
+    await processProjectHandles(entry.name, allHandles);
   }
 
 })();

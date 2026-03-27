@@ -1280,5 +1280,122 @@ const Parser = (() => {
     return { text, stats };
   }
 
-  return { parseFile, fetchUrl, analyzeContent, parseProjectZip };
+  /**
+   * Parse a project from pre-read file objects (from folder picker or drag-and-drop).
+   * files: Array of { name, path, text } — already read and capped by app.js
+   * options: { includeTests, includeDocs }
+   * Returns { text, stats } — same shape as parseProjectZip.
+   * Note: stats.totalFiles and stats.skippedErrors are initialised to 0 here;
+   * app.js patches them in after calling this function.
+   */
+  async function parseProjectFolder(files, options = {}) {
+    const includeTests = options.includeTests || false;
+    const includeDocs = options.includeDocs !== false;
+    const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB per file — matches parseProjectZip
+
+    // Filter files
+    const filtered = files.filter(({ path, text }) => {
+      if (SKIP_DIRS.test(path + '/')) return false;
+      if (SKIP_FILES.test(path)) return false;
+      if (!includeTests && (TEST_FILE_PATTERN.test(path) || TEST_NAME_PATTERN.test(path))) return false;
+
+      const ext = path.split('.').pop().toLowerCase();
+      const baseName = path.split('/').pop().toLowerCase();
+      const isCode = CODE_EXTENSIONS.has(ext) || CODE_EXTENSIONS.has(baseName);
+      const isDoc = DOC_EXTENSIONS.has(ext) || /^readme/i.test(baseName) || /^changelog/i.test(baseName) || /^contributing/i.test(baseName);
+
+      if (!isCode && !(isDoc && includeDocs)) return false;
+
+      // Skip binary content (null bytes in first 500 chars)
+      if (/\x00/.test(text.substring(0, 500))) return false;
+
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      throw new Error('No supported source files found in this folder after filtering.');
+    }
+
+    // Sort: code first, then docs, alphabetical within each group
+    filtered.sort((a, b) => {
+      const extA = a.path.split('.').pop().toLowerCase();
+      const extB = b.path.split('.').pop().toLowerCase();
+      const baseA = a.path.split('/').pop().toLowerCase();
+      const baseB = b.path.split('/').pop().toLowerCase();
+      const aIsCode = CODE_EXTENSIONS.has(extA) || CODE_EXTENSIONS.has(baseA);
+      const bIsCode = CODE_EXTENSIONS.has(extB) || CODE_EXTENSIONS.has(baseB);
+      if (aIsCode !== bIsCode) return aIsCode ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+
+    const stats = {
+      totalFiles: 0,      // patched by app.js (total before cap)
+      parsedFiles: 0,
+      skippedLarge: 0,
+      skippedErrors: 0,   // patched by app.js (read failures)
+      byLanguage: {},
+      byType: { code: 0, doc: 0 },
+    };
+
+    const parts = [];
+
+    // Project structure overview
+    parts.push('[PROJECT_STRUCTURE]');
+    parts.push(`Total files: ${filtered.length}`);
+    parts.push('Files:');
+    filtered.forEach(f => parts.push(`  ${f.path}`));
+    parts.push('[/PROJECT_STRUCTURE]');
+    parts.push('');
+
+    // Process each file
+    for (const { path, text } of filtered) {
+      const ext = path.split('.').pop().toLowerCase();
+      const baseName = path.split('/').pop().toLowerCase();
+      const isCode = CODE_EXTENSIONS.has(ext) || CODE_EXTENSIONS.has(baseName);
+
+      let content = text;
+      if (content.length > MAX_FILE_SIZE) {
+        stats.skippedLarge++;
+        parts.push(`\n${'='.repeat(60)}`);
+        parts.push(`FILE: ${path} (TRUNCATED — ${Math.round(content.length / 1024)}KB > ${MAX_FILE_SIZE / 1024}KB limit)`);
+        parts.push('='.repeat(60));
+        parts.push(annotateSourceCode(content.substring(0, MAX_FILE_SIZE), ext, path));
+        // Count truncated files in stats so byType and byLanguage are not silently omitted
+        if (isCode) {
+          stats.byType.code++;
+          const lang = detectLanguage(ext);
+          stats.byLanguage[lang] = (stats.byLanguage[lang] || 0) + 1;
+        } else {
+          stats.byType.doc++;
+        }
+        stats.parsedFiles++;
+        continue;
+      }
+
+      parts.push(`\n${'='.repeat(60)}`);
+      parts.push(`FILE: ${path}`);
+      parts.push('='.repeat(60));
+
+      if (isCode) {
+        parts.push(annotateSourceCode(content, ext, path));
+        stats.byType.code++;
+        const lang = detectLanguage(ext);
+        stats.byLanguage[lang] = (stats.byLanguage[lang] || 0) + 1;
+      } else {
+        parts.push(content);
+        stats.byType.doc++;
+      }
+
+      stats.parsedFiles++;
+    }
+
+    const text = parts.join('\n');
+    if (text.trim().length < 100) {
+      throw new Error('Could not extract meaningful content from the project folder.');
+    }
+
+    return { text, stats };
+  }
+
+  return { parseFile, fetchUrl, analyzeContent, parseProjectZip, parseProjectFolder };
 })();
