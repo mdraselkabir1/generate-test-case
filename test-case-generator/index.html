@@ -72,6 +72,9 @@
           <button class="btn btn-primary" id="quickGenerate">
             <i class="fas fa-plus"></i> Quick Generate
           </button>
+          <button class="btn btn-sm btn-secondary" id="openGuideBtn" aria-expanded="false">
+            <i class="fas fa-book"></i> Testing Guide
+          </button>
           <div class="theme-toggle" id="themeToggle" title="Toggle theme">
             <i class="fas fa-moon"></i>
           </div>
@@ -329,15 +332,34 @@
                   </div>
                 </div>
 
-                <!-- Project Tab (Folder / Zip Upload) -->
+                <!-- Project Tab (Folder Picker) -->
                 <div class="tab-content" id="project-tab">
-                  <div class="upload-zone" id="projectUploadZone">
-                    <i class="fas fa-folder-open"></i>
-                    <h3>Upload Project Source Code</h3>
-                    <p>Drop a <strong>.zip file</strong> or click to browse</p>
-                    <small>Upload a .zip of your project source code. All supported code files will be analyzed together.</small>
-                    <input type="file" id="projectZipInput" accept=".zip" hidden>
+                  <!-- Folder picker button (Chrome/Edge only) -->
+                  <div id="folderPickerSection">
+                    <button class="btn btn-secondary btn-lg btn-block" id="selectFolderBtn">
+                      <i class="fas fa-folder-open"></i> Select Project Folder
+                    </button>
+                    <small class="form-hint" style="display:block;text-align:center;margin-top:0.5rem;">
+                      Opens a native folder browser — no zipping required
+                    </small>
                   </div>
+
+                  <!-- Fallback note shown when showDirectoryPicker is not available -->
+                  <div id="folderPickerFallbackNote" class="hidden">
+                    <div class="auth-note">
+                      <i class="fas fa-info-circle"></i>
+                      <span>Use drag-and-drop below to select your project folder (Firefox users: drag the folder from your file manager)</span>
+                    </div>
+                  </div>
+
+                  <!-- Drag-and-drop zone (always visible as fallback) -->
+                  <div class="upload-zone" id="projectDropZone" style="margin-top:1rem;">
+                    <i class="fas fa-folder-plus"></i>
+                    <h3>Or drop your project folder here</h3>
+                    <p>Drag a folder from your file manager onto this area</p>
+                    <small>All supported source files will be read recursively</small>
+                  </div>
+
                   <div class="project-upload-options">
                     <label class="auth-toggle-label">
                       <input type="checkbox" id="includeTests" class="form-checkbox">
@@ -348,9 +370,10 @@
                       <i class="fas fa-file-alt"></i> Include documentation files (README, docs/)
                     </label>
                   </div>
+
                   <div id="projectPreview" class="content-preview hidden">
                     <div class="preview-header">
-                      <span id="projectName">project.zip</span>
+                      <span id="projectName">No folder selected</span>
                       <span id="projectStats" class="project-stats"></span>
                       <button class="btn-icon" id="clearProjectPreview"><i class="fas fa-times"></i></button>
                     </div>
@@ -392,6 +415,7 @@
                         <option value="compatibility">Compatibility</option>
                         <option value="error-recovery">Error Recovery</option>
                         <option value="edge-cases">Edge Cases</option>
+                        <option value="exploratory">Exploratory</option>
                       </select>
                     </div>
                     <div class="form-group">
@@ -411,6 +435,7 @@
                         <option value="standard" selected>Standard (10-25 cases)</option>
                         <option value="comprehensive">Comprehensive (25-50 cases)</option>
                         <option value="exhaustive">Exhaustive (50+ cases)</option>
+                        <option value="expert">Expert (100-300 cases)</option>
                       </select>
                     </div>
                   </div>
@@ -548,6 +573,7 @@
                 <option value="compatibility">Compatibility</option>
                 <option value="error-recovery">Error Recovery</option>
                 <option value="edge-cases">Edge Cases</option>
+                <option value="exploratory">Exploratory</option>
               </select>
               <select id="filterPriority" class="form-input">
                 <option value="">All Priorities</option>
@@ -595,6 +621,7 @@
                     <option value="standard" selected>Standard</option>
                     <option value="comprehensive">Comprehensive</option>
                     <option value="exhaustive">Exhaustive</option>
+                    <option value="expert">Expert</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -725,11 +752,33 @@
   <!-- Toast container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- Methodology Guide Drawer -->
+  <div id="guideOverlay" class="guide-overlay hidden"></div>
+  <aside id="methodologyDrawer" class="methodology-drawer"
+         role="dialog" aria-modal="true" aria-label="Testing Guide">
+    <div class="drawer-header">
+      <h2>Testing Guide</h2>
+      <button id="closeGuideBtn" class="btn-icon" aria-label="Close guide">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="drawer-search">
+      <input type="text" id="guideSearch" placeholder="Search methodologies…"
+             aria-label="Search testing methodologies" />
+    </div>
+    <div class="drawer-body">
+      <nav id="guideSidebar" class="guide-sidebar" aria-label="Test type list"></nav>
+      <div id="guideContent" class="guide-content"></div>
+    </div>
+  </aside>
+
   <script src="js/storage.js"></script>
   <script src="js/parser.js"></script>
   <script src="js/generator.js"></script>
   <script src="js/llm.js"></script>
   <script src="js/exporter.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/methodology.js"></script>
+  <script src="js/methodology-ui.js"></script>
 </body>
 </html>
