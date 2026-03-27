@@ -1181,6 +1181,152 @@ const Generator = (() => {
   }
 
   // ============================================================
+  // Expert-level test cases — driven by METHODOLOGY data
+  // ============================================================
+  function generateExpertCases(analysis, entry) {
+    const cases = [];
+    const entryType = entry.id;
+
+    // --- Context enrichment helpers ---
+    const entities = (analysis.entities || []);
+    const actions = (analysis.actions || []);
+    const primaryEntity = entities.length > 0 ? entities[0] : null;
+    const primaryAction = actions.length > 0 ? actions[0] : null;
+
+    function enrichText(text) {
+      let result = text;
+      if (primaryEntity) {
+        result = result.replace(/\bthe resource\b/gi, primaryEntity);
+        result = result.replace(/\bthe system\b/gi, `the ${primaryEntity} system`);
+      }
+      if (primaryAction) {
+        result = result.replace(/\bthe operation\b/gi, `the ${primaryAction} operation`);
+      }
+      return result;
+    }
+
+    // --- Category 1: Checklist Tests ---
+    const setupSteps = entry.process.slice(0, Math.min(3, entry.process.length));
+
+    entry.keyChecklist.forEach(item => {
+      const enrichedItem = enrichText(item);
+      cases.push({
+        title: `Verify: ${enrichedItem.length > 120 ? enrichedItem.substring(0, 117) + '...' : enrichedItem}`,
+        type: entryType,
+        priority: 'high',
+        preconditions: enrichText(entry.whenToUse[0] || 'System is available and configured for testing'),
+        steps: [
+          ...setupSteps.map(s => enrichText(s)),
+          `Verify: ${enrichedItem}`,
+        ],
+        expectedResult: `Confirmed: ${enrichedItem}`,
+        notes: `Standards: ${entry.standard} | Effort: ${entry.effortLevel} | Skill: ${entry.skillLevel}`,
+      });
+    });
+
+    // --- Category 2: Pitfall Tests ---
+    entry.commonPitfalls.forEach(pitfall => {
+      const enrichedPitfall = enrichText(pitfall);
+      const shortPitfall = enrichedPitfall.length > 80
+        ? enrichedPitfall.substring(0, 77) + '...'
+        : enrichedPitfall;
+
+      cases.push({
+        title: `Verify system avoids pitfall: ${shortPitfall}`,
+        type: entryType,
+        priority: 'medium',
+        preconditions: enrichText(entry.whenToUse[0] || 'System is available and configured for testing'),
+        steps: [
+          `Set up the condition: ${enrichedPitfall}`,
+          'Attempt the operation that would trigger this pitfall',
+          'Observe system behavior and response',
+          'Verify the system does NOT exhibit the described pitfall behavior',
+        ],
+        expectedResult: `System handles the scenario correctly, avoiding: ${shortPitfall}`,
+        notes: 'Negative test — derived from common pitfall',
+      });
+    });
+
+    // --- Category 3: Objective Tests ---
+    const toolsNote = entry.tools.length > 0
+      ? 'Recommended tools: ' + entry.tools.slice(0, 3).map(t => `${t.name} (${t.purpose})`).join(', ')
+      : '';
+
+    entry.sampleObjectives.forEach(objective => {
+      const enrichedObj = enrichText(objective);
+
+      // Parse objective into steps
+      const steps = parseObjectiveIntoSteps(enrichedObj);
+
+      // Extract expected result from objective
+      const expectedResult = extractExpectedResult(enrichedObj);
+
+      cases.push({
+        title: enrichedObj.length > 150 ? enrichedObj.substring(0, 147) + '...' : enrichedObj,
+        type: entryType,
+        priority: 'critical',
+        preconditions: enrichText(entry.whenToUse[0] || 'System is available and configured for testing'),
+        steps: steps,
+        expectedResult: expectedResult,
+        notes: toolsNote,
+      });
+    });
+
+    return cases;
+  }
+
+  // ── Objective parsing helpers ────────────────────────────────────
+  function parseObjectiveIntoSteps(objective) {
+    const steps = [];
+
+    // Step 1: Identify what is being tested
+    const verifyMatch = objective.match(/^Verify that (.+?)(?:\s+(?:returns|shows|displays|responds|creates|produces|is|does|can|has|locks|maintains|meets|traps|announces))/i);
+    if (verifyMatch) {
+      steps.push(`Identify the component under test: ${verifyMatch[1].trim()}`);
+    } else {
+      steps.push('Identify the component or feature under test');
+    }
+
+    // Step 2: Set up test conditions
+    const conditionMatch = objective.match(/(?:when|with|after|for|at|using|without)\s+(.+?)(?:\s+(?:returns|shows|and|is\s|does|,))/i);
+    if (conditionMatch) {
+      steps.push(`Set up test condition: ${conditionMatch[1].trim()}`);
+    } else {
+      steps.push('Set up the required test conditions and prerequisites');
+    }
+
+    // Step 3: Execute the action
+    steps.push('Execute the test action as described in the objective');
+
+    // Step 4: Observe result
+    steps.push('Observe and record the system response');
+
+    // Step 5: Compare against expected
+    steps.push('Compare actual result against the expected outcome');
+
+    return steps;
+  }
+
+  function extractExpectedResult(objective) {
+    const patterns = [
+      /(?:returns|shows|displays|responds with|produces|creates)\s+(.+)$/i,
+      /(?:is\s+(?:redirected|rejected|blocked|accepted|created|updated|deleted))\s*(.*)$/i,
+      /(?:does not|cannot|should not)\s+(.+)$/i,
+      /(?:locks out|maintains|meets|traps|announces)\s+(.+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = objective.match(pattern);
+      if (match) {
+        return match[0].trim();
+      }
+    }
+
+    // Fallback: use the full objective as the expected result
+    return objective;
+  }
+
+  // ============================================================
   function inferPlanName(analysis) {
     if (analysis.codeAnalysis && analysis.codeAnalysis.isSourceCode) {
       const ca = analysis.codeAnalysis;
